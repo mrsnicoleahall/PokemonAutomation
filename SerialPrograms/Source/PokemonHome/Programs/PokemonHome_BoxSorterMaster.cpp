@@ -340,26 +340,37 @@ void BoxSorterMaster::read_summary_screen_with_extras(
 
     // ---- Phase 1: Extras (ability / nature / held item) — no navigation ----
     if (read_extras && extras_language != Language::None){
-        VideoSnapshot screen = env.console.video().snapshot();
-        VideoOverlaySet extras_vo(env.console);
-        make_summary_extras_overlays(extras_vo);
-        SummaryExtras se = read_summary_extras(env.console, screen, extras_language);
+        try{
+            VideoSnapshot screen = env.console.video().snapshot();
+            VideoOverlaySet extras_vo(env.console);
+            make_summary_extras_overlays(extras_vo);
+            SummaryExtras se = read_summary_extras(env.console, screen, extras_language);
 
-        // A successful read means we got at least the ability (nature is always
-        // present; item may be empty for no-held-item).  We always mark
-        // extras_read=true when READ_EXTRAS fires — partial results are still
-        // useful for routing.
-        info.ability_slug    = se.ability_slug;
-        info.nature          = se.nature;
-        info.held_item_slug  = se.held_item_slug;
-        info.extras_read     = true;
-        stats.extras_read++;
-        env.update_stats();
-        env.log(
-            "Extras read: ability=" + se.ability_slug +
-            " nature=" + se.nature +
-            " held_item=" + se.held_item_slug
-        );
+            // A successful read means we got at least the ability (nature is always
+            // present; item may be empty for no-held-item).  We always mark
+            // extras_read=true when READ_EXTRAS fires — partial results are still
+            // useful for routing.
+            info.ability_slug    = se.ability_slug;
+            info.nature          = se.nature;
+            info.held_item_slug  = se.held_item_slug;
+            info.extras_read     = true;
+            stats.extras_read++;
+            env.update_stats();
+            env.log(
+                "Extras read: ability=" + se.ability_slug +
+                " nature=" + se.nature +
+                " held_item=" + se.held_item_slug
+            );
+        }
+        catch (...){
+            info.extras_read = false;
+            stats.extras_failed++;
+            env.update_stats();
+            env.log(
+                "BoxSorterMaster: Extras read threw an exception — extras_read=false, continuing.",
+                COLOR_YELLOW
+            );
+        }
     }
     else if (read_extras && extras_language == Language::None){
         // Warn: flag on but language unset — cannot read.
@@ -490,11 +501,15 @@ void BoxSorterMaster::read_summary_screen_with_extras(
                     SummaryScreenWatcher back_watcher(&env.console.overlay());
                     int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
                     if (back_ret != 0){
-                        OperationFailedException::fire(
-                            ErrorReport::SEND_ERROR_REPORT,
-                            "BoxSorterMaster: Summary screen not found after B from moves screen",
-                            env.console
+                        // Cannot confirm summary after B from moves screen (miss path).
+                        // Set moves_read=false (already set above), log, and continue.
+                        info.moves_read = false;
+                        env.log(
+                            "BoxSorterMaster: Summary screen not confirmed after B from moves screen "
+                            "(miss path) — moves_read=false, continuing.",
+                            COLOR_YELLOW
                         );
+                        return;
                     }
                 }
             }
@@ -528,11 +543,16 @@ void BoxSorterMaster::read_summary_screen_with_extras(
                     SummaryScreenWatcher back_watcher(&env.console.overlay());
                     int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
                     if (back_ret != 0){
-                        OperationFailedException::fire(
-                            ErrorReport::SEND_ERROR_REPORT,
-                            "BoxSorterMaster: Summary screen not found after B from moves screen",
-                            env.console
+                        // Cannot confirm summary after B from moves screen (success path).
+                        // Moves were read but we cannot verify we returned — mark moves_read=false
+                        // to be conservative, log a warning, and continue.
+                        info.moves_read = false;
+                        env.log(
+                            "BoxSorterMaster: Summary screen not confirmed after B from moves screen "
+                            "(post-read) — moves_read=false, continuing.",
+                            COLOR_YELLOW
                         );
+                        return;
                     }
                 }
             }
