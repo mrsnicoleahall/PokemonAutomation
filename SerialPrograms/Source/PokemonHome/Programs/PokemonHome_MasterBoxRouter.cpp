@@ -10,6 +10,7 @@
  *    4. iv_read && best_count >= competitive_min31      → Competitive
  *    5. iv_read && best_count in breeding_range         → Breeding
  *    6. iv_read && best_count in breedject_range        → Breedject
+ *    6b. matches any UtilityRule (ability/item/move slug) → Utility  [v2]
  *    7. event (cherish ball OR origin_mark ∈ {GO,LGPE,GAMEBOY}) → Events
  *    8. dex ∈ mythical → Mythical;  ∈ legendary → Legendary;
  *       ∈ ultra_beast  → UltraBeast; ∈ paradox  → Paradox
@@ -47,6 +48,25 @@ static bool is_event(const Pokemon::CollectedPokemonInfo& p){
 
 bool is_owner_ot(const Pokemon::CollectedPokemonInfo& p, const std::set<std::string>& owners){
     return owners.find(p.ot_name) != owners.end();
+}
+
+bool p_matches_utility(const Pokemon::CollectedPokemonInfo& p, const std::vector<UtilityRule>& rules){  // v2
+    for (const UtilityRule& r : rules){
+        switch (r.kind){
+        case UtilityRule::Ability:
+            if (p.ability_slug == r.target_slug) return true;
+            break;
+        case UtilityRule::Item:
+            if (p.held_item_slug == r.target_slug) return true;
+            break;
+        case UtilityRule::Move:
+            for (const std::string& m : p.moves){
+                if (m == r.target_slug) return true;
+            }
+            break;
+        }
+    }
+    return false;
 }
 
 
@@ -95,6 +115,11 @@ BoxCategory route(
             p.iv_best_count <= cfg.breedject_range.second){
             return BoxCategory::Breedject;
         }
+    }
+
+    // 6b. Utility — ability/item/move match (v2).
+    if (p_matches_utility(p, cfg.utility_rules)){
+        return BoxCategory::Utility;
     }
 
     // 7. Event distribution Pokémon.

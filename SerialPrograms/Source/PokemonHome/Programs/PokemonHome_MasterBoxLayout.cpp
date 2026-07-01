@@ -52,6 +52,7 @@ static BoxCategory parse_category(const std::string& name, const std::string& pa
         {"Paradox",        BoxCategory::Paradox},
         {"ManualForms",    BoxCategory::ManualForms},
         {"ManualOther",    BoxCategory::ManualOther},
+        {"Utility",        BoxCategory::Utility},   // v2
     };
     auto it = TABLE.find(name);
     if (it == TABLE.end()){

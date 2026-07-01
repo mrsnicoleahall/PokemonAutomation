@@ -383,6 +383,39 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
     return 0;
 }
 
+int test_pokemonHome_UtilityRouting(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    using PA = Pokemon::CollectedPokemonInfo;
+    std::set<uint16_t> legend, myth, ub, para;
+    std::vector<UtilityRule> ur = {
+        {UtilityRule::Ability, "flame-body"}, {UtilityRule::Ability, "synchronize"},
+        {UtilityRule::Item,    "amulet-coin"}, {UtilityRule::Move,   "false-swipe"},
+    };
+    RouterConfig cfg{ {"nicole","cole"}, 6, {3,5}, {1,2}, &legend,&myth,&ub,&para, ur };
+
+    // Hatcher with flame-body ability → Utility
+    PA hatcher{}; hatcher.dex_number=1; hatcher.ot_name="nicole"; hatcher.iv_read=true; hatcher.ability_slug="flame-body";
+    TEST_RESULT_EQUAL((int)route(hatcher,cfg,false,true), (int)BoxCategory::Utility);
+
+    // False-swipe user → Utility
+    PA catcher{}; catcher.dex_number=286; catcher.ot_name="nicole"; catcher.iv_read=true; catcher.moves={"false-swipe","spore"};
+    TEST_RESULT_EQUAL((int)route(catcher,cfg,false,true), (int)BoxCategory::Utility);
+
+    // Amulet-coin holder → Utility
+    PA money{}; money.dex_number=52; money.ot_name="nicole"; money.iv_read=true; money.held_item_slug="amulet-coin";
+    TEST_RESULT_EQUAL((int)route(money,cfg,false,true), (int)BoxCategory::Utility);
+
+    // 6x31 Synchronize mon → Competitive wins (IV routing fires before Utility)
+    PA comp{}; comp.dex_number=280; comp.ot_name="nicole"; comp.iv_read=true; comp.iv_best_count=6; comp.ability_slug="synchronize";
+    TEST_RESULT_EQUAL((int)route(comp,cfg,false,true), (int)BoxCategory::Competitive);
+
+    // Plain mon, no utility match → LivingDex
+    PA plain{}; plain.dex_number=1; plain.ot_name="nicole"; plain.iv_read=true;
+    TEST_RESULT_EQUAL((int)route(plain,cfg,false,true), (int)BoxCategory::LivingDex);
+
+    return 0;
+}
+
 int test_pokemonHome_IvSummary(const ImageViewRGB32& /*image*/){
     using Pokemon::IvJudgeValue;
     using R = Pokemon::IvJudgeReader::Results;

@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
 
 namespace PokemonAutomation{
@@ -40,6 +41,17 @@ enum class BoxCategory{
     Paradox,
     ManualForms,
     ManualOther,
+    Utility,   // v2: any mon matched by a UtilityRule
+};
+
+
+// ---------------------------------------------------------------------------
+// Utility rule — matches a mon by ability, held item, or move slug.  // v2
+// ---------------------------------------------------------------------------
+struct UtilityRule{
+    enum Kind { Ability, Item, Move };
+    Kind        kind;
+    std::string target_slug;
 };
 
 
@@ -63,6 +75,9 @@ struct RouterConfig{
     const std::set<uint16_t>* mythical   = nullptr;
     const std::set<uint16_t>* ultra_beast = nullptr;
     const std::set<uint16_t>* paradox    = nullptr;
+
+    // v2: ability/item/move rules for the Utility box.
+    std::vector<UtilityRule> utility_rules;
 };
 
 
@@ -72,6 +87,9 @@ struct RouterConfig{
 
 // Returns true if p.ot_name is in the owner set (already normalized/lowercased).
 bool is_owner_ot(const Pokemon::CollectedPokemonInfo& p, const std::set<std::string>& owners);
+
+// Returns true if p matches any UtilityRule (ability, held item, or move slug).  // v2
+bool p_matches_utility(const Pokemon::CollectedPokemonInfo& p, const std::vector<UtilityRule>& rules);
 
 
 // ---------------------------------------------------------------------------
