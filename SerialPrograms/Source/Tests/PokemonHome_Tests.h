@@ -27,6 +27,8 @@ int test_pokemonHome_MasterBoxRouter(const ImageViewRGB32& image);
 
 int test_pokemonHome_MasterBoxLayout(const ImageViewRGB32& image);
 
+int test_pokemonHome_MasterPlanner(const ImageViewRGB32& image);
+
 }
 
 #endif

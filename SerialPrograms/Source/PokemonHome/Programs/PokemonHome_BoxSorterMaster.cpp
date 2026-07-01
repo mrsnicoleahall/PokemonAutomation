@@ -9,7 +9,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "Common/Cpp/Exceptions.h"
 #include "Common/Cpp/Json/JsonArray.h"
+#include "CommonFramework/Globals.h"
 #include "Common/Cpp/Json/JsonObject.h"
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Strings/Unicode.h"
@@ -25,12 +27,18 @@
 #include "NintendoSwitch/Commands/NintendoSwitch_Commands_PushButtons.h"
 #include "Pokemon/Pokemon_BoxCursor.h"
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
+#include "Pokemon/Pokemon_OriginMarks.h"
 #include "Pokemon/Pokemon_Strings.h"
+#include "Pokemon/Pokemon_Types.h"
+#include "Pokemon/Options/Pokemon_StatsHuntFilter.h"
 #include "PokemonHome/Inference/PokemonHome_ButtonDetector.h"
 #include "PokemonHome/Inference/PokemonHome_IvJudgeReader.h"
 #include "PokemonHome/Inference/PokemonHome_IvSummary.h"
 #include "PokemonHome_BoxNavigation.h"
 #include "PokemonHome_BoxSorterMaster.h"
+#include "PokemonHome_MasterBoxLayout.h"
+#include "PokemonHome_MasterBoxPlanner.h"
+#include "PokemonHome_MasterBoxRouter.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -374,7 +382,8 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
     bool read_ivs,
     Language iv_language,
     const std::string& output_path,
-    size_t already_done_boxes
+    size_t already_done_boxes,
+    const std::vector<size_t>& saved_fingerprints  // Part C.2: occupancy mismatch check
 ){
     BoxSorterMaster_Descriptor::Stats& stats =
         env.current_stats<BoxSorterMaster_Descriptor::Stats>();
@@ -435,16 +444,27 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
         box_fingerprints.push_back(occupancy);
 
         if (box_rel < already_done_boxes){
-            // This box was loaded from the JSON resume.  Re-check occupancy
-            // to decide whether the saved data is still valid.
-            // The saved fingerprint was loaded into box_fingerprints during
-            // load_catalogue_resume; we compare against the live count.
-            // (already_done_boxes is the count of boxes whose data we trust.)
-            // Since we are before already_done_boxes, skip re-reading.
+            // This box was loaded from the JSON resume.
+            // Part C.2: Compare live occupancy against the saved fingerprint.
+            // If they differ, the box changed since we catalogued it — abort.
+            if (box_rel < saved_fingerprints.size()){
+                const size_t saved_occ = saved_fingerprints[box_rel];
+                if (occupancy != saved_occ){
+                    throw UserSetupError(
+                        env.logger(),
+                        "BoxSorterMaster: Occupancy mismatch on resume for HOME box " +
+                        std::to_string(abs_box + 1) +
+                        " — saved=" + std::to_string(saved_occ) +
+                        ", live=" + std::to_string(occupancy) +
+                        ". The box was modified since the last catalogue run. "
+                        "Enable 'Fresh Start' to re-scan from scratch."
+                    );
+                }
+            }
             env.log(
                 "BoxSorterMaster: Box " + std::to_string(box_rel + 1) +
                 " already in catalogue (resume) — live occupancy=" +
-                std::to_string(occupancy) + ", skipping re-read."
+                std::to_string(occupancy) + " matches saved, skipping re-read."
             );
             stats.boxes_scanned++;
             env.update_stats();
@@ -576,15 +596,28 @@ void BoxSorterMaster::program(
 
     const std::string output_path =
         static_cast<std::string>(OUTPUT_FILE) + ".json";
+    const std::string plan_path     = static_cast<std::string>(OUTPUT_FILE) + "_plan.json";
+    const std::string progress_path = static_cast<std::string>(OUTPUT_FILE) + "_progress.json";
 
     if (dry_run){
         env.log("BoxSorterMaster: DRY RUN mode — cataloguing only, no moves will be made.");
     }
 
+    // Part C.3: Warn if READ_IVS is on but IV_LANGUAGE is None (IVs won't be read).
+    if (read_ivs && iv_lang == Language::None){
+        env.log(
+            "BoxSorterMaster: WARNING — READ_IVS is enabled but IV_LANGUAGE is None. "
+            "IVs will NOT be read; IV-based routing will silently degrade to non-IV paths.",
+            COLOR_YELLOW
+        );
+    }
+
     // -----------------------------------------------------------------------
-    // Parse OWNER_OT_NAMES into a lowercased set (Task 8 will use this).
+    // Parse OWNER_OT_NAMES into a lowercased set.
     // We log it here so the operator can verify before a long run.
+    // The set is also used below by RouterConfig for the planner.
     // -----------------------------------------------------------------------
+    std::set<std::string> owner_ot_set;
     {
         std::string raw_owners = static_cast<std::string>(OWNER_OT_NAMES);
         std::string lower;
@@ -595,18 +628,19 @@ void BoxSorterMaster::program(
 
         std::ostringstream oss;
         oss << "BoxSorterMaster: Owner OT names (lowercased): [";
-        bool first = true;
+        bool first_tok = true;
         std::istringstream token_stream(lower);
         std::string token;
         while (std::getline(token_stream, token, ',')){
             // Trim whitespace.
-            auto start = token.find_first_not_of(" \t");
-            auto end   = token.find_last_not_of(" \t");
-            if (start == std::string::npos){ continue; }
-            token = token.substr(start, end - start + 1);
-            if (!first){ oss << ", "; }
+            auto ts = token.find_first_not_of(" \t");
+            auto te = token.find_last_not_of(" \t");
+            if (ts == std::string::npos){ continue; }
+            token = token.substr(ts, te - ts + 1);
+            owner_ot_set.insert(token);
+            if (!first_tok){ oss << ", "; }
             oss << "\"" << token << "\"";
-            first = false;
+            first_tok = false;
         }
         oss << "]";
         env.log(oss.str());
@@ -654,26 +688,187 @@ void BoxSorterMaster::program(
         read_ivs,
         iv_lang,
         output_path,
-        already_done_boxes
+        already_done_boxes,
+        saved_fingerprints   // Part C.2: for occupancy mismatch check on resume
     );
 
     env.log("BoxSorterMaster: Catalogue pass complete. JSON written to: " + output_path);
 
     // -----------------------------------------------------------------------
-    // TODO (Task 8): Planner pass — build a move plan from catalogue + layout.
-    //
-    // RouterConfig cfg;
-    // cfg.owner_ot_names = parsed_owner_set;
-    // cfg.competitive_min31 = COMPETITIVE_MIN31;
-    // cfg.breeding_range    = {BREEDING_MIN, BREEDING_MAX};
-    // cfg.breedject_range   = {BREEDJECT_MIN, BREEDJECT_MAX};
-    // cfg.legendary         = &layout.legendary;
-    // ...
-    // std::vector<MoveOp> plan = build_sort_plan(catalogue, layout, cfg);
-    // save_plan_to_json(plan, plan_path);
-    //
-    // TODO (Task 8): Execute pass — execute plan if !DRY_RUN.
+    // Planner pass — build RouterConfig from live options, load layout, plan.
     // -----------------------------------------------------------------------
+
+    // Load master_box_layout.json from the Resources directory.
+    // The layout file is expected alongside the other PokemonHome resource files.
+    MasterBoxLayout layout;
+    {
+        const std::string layout_path =
+            RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout.json";
+        try{
+            layout = load_master_box_layout(layout_path);
+            env.log("BoxSorterMaster: Loaded master_box_layout from: " + layout_path);
+        }
+        catch (const std::exception& ex){
+            throw UserSetupError(
+                env.logger(),
+                std::string("BoxSorterMaster: Failed to load master_box_layout.json: ") + ex.what()
+            );
+        }
+    }
+
+    // Build RouterConfig from live program options.
+    RouterConfig router_cfg;
+    router_cfg.owner_ot_names    = owner_ot_set;
+    router_cfg.competitive_min31 = static_cast<uint8_t>(COMPETITIVE_MIN31);
+    router_cfg.breeding_range    = {
+        static_cast<uint8_t>(BREEDING_MIN),
+        static_cast<uint8_t>(BREEDING_MAX)
+    };
+    router_cfg.breedject_range   = {
+        static_cast<uint8_t>(BREEDJECT_MIN),
+        static_cast<uint8_t>(BREEDJECT_MAX)
+    };
+    router_cfg.legendary   = layout.legendary.empty()   ? nullptr : &layout.legendary;
+    router_cfg.mythical    = layout.mythical.empty()    ? nullptr : &layout.mythical;
+    router_cfg.ultra_beast = layout.ultra_beast.empty() ? nullptr : &layout.ultra_beast;
+    router_cfg.paradox     = layout.paradox.empty()     ? nullptr : &layout.paradox;
+
+    // Scratch buffer = scratch_box_count (3) boxes immediately after the scan range.
+    const uint16_t scratch_box_start = static_cast<uint16_t>(scan_start + scan_count);
+    const uint16_t scratch_box_count = 3;
+
+    // Build the move plan.
+    env.log("BoxSorterMaster: Building move plan...");
+    MasterPlan master_plan = build_master_plan(
+        catalogue, layout, router_cfg, scratch_box_start, scratch_box_count
+    );
+    env.log(
+        "BoxSorterMaster: Plan has " + std::to_string(master_plan.moves.size()) +
+        " moves, " + std::to_string(master_plan.warnings.size()) + " warning(s)."
+    );
+    for (const auto& w : master_plan.warnings){
+        env.log("BoxSorterMaster Plan Warning: " + w, COLOR_YELLOW);
+    }
+
+    // Check for blocking warnings before touching hardware.
+    for (const auto& w : master_plan.warnings){
+        if (w.rfind("[BLOCKING]", 0) == 0){
+            throw UserSetupError(
+                env.logger(),
+                "BoxSorterMaster: Blocking plan warning — cannot execute safely.\n" + w
+            );
+        }
+    }
+
+    // Always write the plan JSON (even in DRY_RUN).
+    {
+        JsonObject plan_root;
+        JsonArray moves_arr;
+        for (const auto& mv : master_plan.moves){
+            JsonObject m;
+            {
+                JsonObject f;
+                f["box"]    = static_cast<int64_t>(mv.from.box);
+                f["row"]    = static_cast<int64_t>(mv.from.row);
+                f["column"] = static_cast<int64_t>(mv.from.column);
+                m["from"] = std::move(f);
+            }
+            {
+                JsonObject t;
+                t["box"]    = static_cast<int64_t>(mv.to.box);
+                t["row"]    = static_cast<int64_t>(mv.to.row);
+                t["column"] = static_cast<int64_t>(mv.to.column);
+                m["to"] = std::move(t);
+            }
+            moves_arr.push_back(std::move(m));
+        }
+        plan_root["moves"] = std::move(moves_arr);
+
+        JsonArray warn_arr;
+        for (const auto& w : master_plan.warnings){
+            warn_arr.push_back(w);
+        }
+        plan_root["warnings"] = std::move(warn_arr);
+        plan_root.dump(plan_path);
+        env.log("BoxSorterMaster: Plan written to: " + plan_path);
+    }
+
+    if (dry_run){
+        env.log("BoxSorterMaster: DRY RUN — stopping before execute pass.");
+        send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Execute pass — execute moves one at a time, writing progress after each.
+    // Resume: if !fresh_start and progress file exists, skip done moves.
+    // -----------------------------------------------------------------------
+
+    // Load previously-completed move indices from progress file (resume).
+    size_t moves_done = 0;
+    if (!fresh_start){
+        // Attempt to load progress.
+        JsonValue prog_val;
+        try{
+            prog_val = load_json_file(progress_path);
+        }
+        catch (...){
+            prog_val = JsonValue();  // missing/unreadable → fresh
+        }
+        if (prog_val.is_object()){
+            const JsonObject* prog = prog_val.to_object();
+            if (prog){
+                const JsonValue* done_val = prog->get_value("moves_done");
+                if (done_val && done_val->is_integer()){
+                    moves_done = static_cast<size_t>(done_val->to_integer_default(0));
+                    env.log(
+                        "BoxSorterMaster: Resuming execute — " +
+                        std::to_string(moves_done) + " moves already completed."
+                    );
+                }
+            }
+        }
+        if (moves_done >= master_plan.moves.size()){
+            env.log("BoxSorterMaster: All moves already complete (resume). Skipping execute.");
+            send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
+            return;
+        }
+    }
+
+    // Helper to write progress JSON.
+    auto write_progress = [&](size_t done){
+        JsonObject prog;
+        prog["moves_done"] = static_cast<int64_t>(done);
+        prog["total_moves"] = static_cast<int64_t>(master_plan.moves.size());
+        prog.dump(progress_path);
+    };
+
+    // Execute remaining moves.
+    for (size_t mi = moves_done; mi < master_plan.moves.size(); mi++){
+        const PlannedMove& mv = master_plan.moves[mi];
+
+        nav_cursor = move_cursor_to(env, context, nav_cursor, mv.from, GAME_DELAY);
+        pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+
+        nav_cursor = move_cursor_to(env, context, nav_cursor, mv.to, GAME_DELAY);
+        pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+
+        context.wait_for_all_requests();
+
+        env.log(
+            "BoxSorterMaster: Move " + std::to_string(mi + 1) + "/" +
+            std::to_string(master_plan.moves.size()) +
+            ": [" + std::to_string(mv.from.box) + "," + std::to_string(mv.from.row) +
+            "," + std::to_string(mv.from.column) + "] → [" +
+            std::to_string(mv.to.box) + "," + std::to_string(mv.to.row) +
+            "," + std::to_string(mv.to.column) + "]"
+        );
+
+        write_progress(mi + 1);
+    }
+
+    env.log("BoxSorterMaster: Execute pass complete. All " +
+            std::to_string(master_plan.moves.size()) + " moves done.");
 
     send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
 }
@@ -822,10 +1017,45 @@ bool load_catalogue_resume(
         info.iv_total_estimate = static_cast<uint16_t>(obj->get_integer_default("iv_total_estimate", 0));
         info.iv_perfect        = obj->get_boolean_default("iv_perfect", false);
 
-        // Note: primary_type, secondary_type, tera_type, origin_mark, gender are not
-        // round-tripped via enum parsing here to keep the loader simple and avoid
-        // pulling in all the enum slug maps.  They default to NONE/Genderless.
-        // Task 8's planner only needs dex#, iv_best_count, iv_read, ot_name, shiny.
+        // Part C.1: Round-trip ALL fields the router/planner use.
+        // Deserialize using the same slug maps that write_catalogue_incremental uses.
+        {
+            const std::string pt_slug = obj->get_string_default("primary_type", "");
+            if (!pt_slug.empty()){
+                info.primary_type =
+                    Pokemon::POKEMON_TYPE_SLUGS().get_enum(pt_slug, Pokemon::PokemonType::NONE);
+            }
+        }
+        {
+            const std::string st_slug = obj->get_string_default("secondary_type", "");
+            if (!st_slug.empty()){
+                info.secondary_type =
+                    Pokemon::POKEMON_TYPE_SLUGS().get_enum(st_slug, Pokemon::PokemonType::NONE);
+            }
+        }
+        {
+            const std::string tt_slug = obj->get_string_default("tera_type", "");
+            if (!tt_slug.empty()){
+                info.tera_type =
+                    Pokemon::POKEMON_TERA_TYPE_SLUGS().get_enum(tt_slug, Pokemon::PokemonTeraType::NONE);
+            }
+        }
+        {
+            const std::string om_slug = obj->get_string_default("origin_mark", "");
+            if (!om_slug.empty()){
+                info.origin_mark =
+                    Pokemon::ORIGIN_MARK_SLUGS().get_enum(om_slug, Pokemon::OriginMark::NONE);
+            }
+        }
+        {
+            // gender_to_string produces "Any"/"Male"/"Female"/"Genderless".
+            // Reverse lookup manually (no reverse function exists in the codebase).
+            const std::string g_str = obj->get_string_default("gender", "Genderless");
+            if      (g_str == "Male")      { info.gender = Pokemon::StatsHuntGenderFilter::Male; }
+            else if (g_str == "Female")    { info.gender = Pokemon::StatsHuntGenderFilter::Female; }
+            else if (g_str == "Any")       { info.gender = Pokemon::StatsHuntGenderFilter::Any; }
+            else                           { info.gender = Pokemon::StatsHuntGenderFilter::Genderless; }
+        }
 
         loaded.push_back(std::move(info));
     }

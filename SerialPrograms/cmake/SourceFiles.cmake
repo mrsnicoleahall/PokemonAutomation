@@ -1629,6 +1629,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Programs/PokemonHome_GenerateNameOCR.h
     Source/PokemonHome/Programs/PokemonHome_MasterBoxLayout.cpp
     Source/PokemonHome/Programs/PokemonHome_MasterBoxLayout.h
+    Source/PokemonHome/Programs/PokemonHome_MasterBoxPlanner.cpp
+    Source/PokemonHome/Programs/PokemonHome_MasterBoxPlanner.h
     Source/PokemonHome/Programs/PokemonHome_MasterBoxRouter.cpp
     Source/PokemonHome/Programs/PokemonHome_MasterBoxRouter.h
     Source/PokemonHome/Programs/PokemonHome_PageSwap.cpp

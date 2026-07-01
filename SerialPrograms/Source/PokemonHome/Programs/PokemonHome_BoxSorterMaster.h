@@ -70,7 +70,8 @@ private:
         bool read_ivs,
         Language iv_language,
         const std::string& output_path,
-        size_t already_done_boxes          // resume offset: skip this many boxes at front
+        size_t already_done_boxes,         // resume offset: skip this many boxes at front
+        const std::vector<size_t>& saved_fingerprints  // Part C.2: occupancy mismatch check
     );
 
     // Scan box_idx (0-indexed relative to SCAN_BOX_START) and count occupied slots.
