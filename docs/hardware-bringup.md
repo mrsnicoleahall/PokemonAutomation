@@ -22,12 +22,12 @@ Sources: Pokémon Automation Setup Guide —
       *(The Switch 2 must be docked — handheld mode has no video out.)*
 - [ ] **Cable 1 — ESP32-S3 ➜ Mac:** your USB-C→Micro-USB cable (Mac is USB-C). This goes
       to the board's **"COM"/"UART"** port.
-- [ ] ⚠️ **Cable 2 — ESP32-S3 (board "USB"/"OTG" USB-C) ➜ Switch 2 dock FRONT USB-A:** the S3
+- [ ] ⚠️ **Cable 2 — ESP32-S3 (board "USB"/"OTG" USB-C) ➜ Switch 2 dock SIDE USB-A:** the S3
       is a **wired** controller. Because we must be **docked** (the capture card feeds off the
-      dock's HDMI-out on the back), the controller plugs into the **USB-A ("USB 2.0") port on the
-      FRONT of the dock** (per Nintendo's dock diagram) — **NOT** the console's USB-C and **NOT**
+      dock's HDMI-out on the back), the controller plugs into the **USB-A ports on the SIDE of
+      the dock** (confirmed on Nicole's actual dock) — **NOT** the console's USB-C and **NOT**
       the dock's back (back = AC adapter / HDMI OUT / LAN only). You need a **USB-A ↔ USB-C data
-      cable** (USB-A into the dock front, USB-C into the board's OTG port).
+      cable** (USB-A into the dock side, USB-C into the board's OTG port).
       *(The console's top USB-C only hosts a wired controller in tabletop mode, which we can't
       use here — no HDMI to the capture card.)*
 
