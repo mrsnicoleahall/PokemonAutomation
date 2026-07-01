@@ -33,6 +33,8 @@
 #include "PokemonHome/Inference/PokemonHome_ButtonDetector.h"
 #include "PokemonHome/Inference/PokemonHome_IvJudgeReader.h"
 #include "PokemonHome/Inference/PokemonHome_IvSummary.h"
+#include "PokemonHome/Inference/PokemonHome_MovesReader.h"
+#include "PokemonHome/Inference/PokemonHome_SummaryExtrasReader.h"
 #include "PokemonHome_BoxNavigation.h"
 #include "PokemonHome_BoxSorterMaster.h"
 #include "PokemonHome_MasterBoxLayout.h"
@@ -74,20 +76,32 @@ struct BoxSorterMaster_Descriptor::Stats : public StatsTracker{
         : boxes_scanned(m_stats["Boxes Scanned"])
         , pkmn(m_stats["Pokemon"])
         , empty(m_stats["Empty Slots"])
+        , extras_read(m_stats["Extras Reads"])
+        , extras_failed(m_stats["Extras Failures"])
         , iv_read(m_stats["IV Reads"])
         , iv_failed(m_stats["IV Read Failures"])
+        , moves_read(m_stats["Move Reads"])
+        , moves_failed(m_stats["Move Read Failures"])
     {
         m_display_order.emplace_back(Stat("Boxes Scanned"));
         m_display_order.emplace_back(Stat("Pokemon"));
         m_display_order.emplace_back(Stat("Empty Slots"));
+        m_display_order.emplace_back(Stat("Extras Reads"));
+        m_display_order.emplace_back(Stat("Extras Failures"));
         m_display_order.emplace_back(Stat("IV Reads"));
         m_display_order.emplace_back(Stat("IV Read Failures"));
+        m_display_order.emplace_back(Stat("Move Reads"));
+        m_display_order.emplace_back(Stat("Move Read Failures"));
     }
     std::atomic<uint64_t>& boxes_scanned;
     std::atomic<uint64_t>& pkmn;
     std::atomic<uint64_t>& empty;
+    std::atomic<uint64_t>& extras_read;
+    std::atomic<uint64_t>& extras_failed;
     std::atomic<uint64_t>& iv_read;
     std::atomic<uint64_t>& iv_failed;
+    std::atomic<uint64_t>& moves_read;
+    std::atomic<uint64_t>& moves_failed;
 };
 
 std::unique_ptr<StatsTracker> BoxSorterMaster_Descriptor::make_stats() const{
@@ -134,6 +148,28 @@ BoxSorterMaster::BoxSorterMaster()
         LockMode::LOCK_WHILE_RUNNING,
         "Nicole, Cole",
         "e.g. Nicole, Cole"
+    )
+    , READ_EXTRAS(
+        "<b>Read Extras:</b><br>Read ability, nature, and held item from the summary screen. "
+        "No extra navigation — read from the same screen already visited.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
+    , EXTRAS_LANGUAGE(
+        "<b>Extras Language:</b><br>Language for ability, nature, and item OCR.",
+        LanguageSet{
+            Language::English,
+            Language::Japanese,
+            Language::Spanish,
+            Language::French,
+            Language::German,
+            Language::Italian,
+            Language::Korean,
+            Language::ChineseSimplified,
+            Language::ChineseTraditional,
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        false
     )
     , READ_IVS(
         "<b>Read IVs:</b><br>Press Y on each summary screen to open the Judge view and "
@@ -185,6 +221,36 @@ BoxSorterMaster::BoxSorterMaster()
         LockMode::LOCK_WHILE_RUNNING,
         2, 0, 6
     )
+    , READ_MOVES(
+        "<b>Read Moves:</b><br>Navigate to the moves screen (R button) and OCR all four moves. "
+        "Adds ~3 seconds per Pokémon. Requires EXTRAS_LANGUAGE to be set.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
+    , UTILITY_ABILITIES(
+        false,
+        "<b>Utility — Abilities:</b><br>Comma-separated ability slugs that route a Pokémon to the "
+        "Utility box (e.g. flame-body, synchronize). Case-insensitive, normalized on load.",
+        LockMode::LOCK_WHILE_RUNNING,
+        "flame-body,magma-armor,synchronize,pickup,run-away",
+        "e.g. flame-body,synchronize"
+    )
+    , UTILITY_ITEMS(
+        false,
+        "<b>Utility — Items:</b><br>Comma-separated held-item slugs that route a Pokémon to the "
+        "Utility box (e.g. amulet-coin, smoke-ball).",
+        LockMode::LOCK_WHILE_RUNNING,
+        "amulet-coin,smoke-ball",
+        "e.g. amulet-coin,smoke-ball"
+    )
+    , UTILITY_MOVES(
+        false,
+        "<b>Utility — Moves:</b><br>Comma-separated move slugs that route a Pokémon to the "
+        "Utility box (e.g. false-swipe, pay-day).",
+        LockMode::LOCK_WHILE_RUNNING,
+        "false-swipe,pay-day",
+        "e.g. false-swipe,pay-day"
+    )
     , VIDEO_DELAY(
         "<b>Capture Card Delay:</b>",
         LockMode::LOCK_WHILE_RUNNING,
@@ -223,6 +289,8 @@ BoxSorterMaster::BoxSorterMaster()
     PA_ADD_OPTION(SCAN_BOX_COUNT);
     PA_ADD_OPTION(OT_NAME_LANGUAGE);
     PA_ADD_OPTION(OWNER_OT_NAMES);
+    PA_ADD_OPTION(READ_EXTRAS);
+    PA_ADD_OPTION(EXTRAS_LANGUAGE);
     PA_ADD_OPTION(READ_IVS);
     PA_ADD_OPTION(IV_LANGUAGE);
     PA_ADD_OPTION(COMPETITIVE_MIN31);
@@ -230,6 +298,10 @@ BoxSorterMaster::BoxSorterMaster()
     PA_ADD_OPTION(BREEDING_MAX);
     PA_ADD_OPTION(BREEDJECT_MIN);
     PA_ADD_OPTION(BREEDJECT_MAX);
+    PA_ADD_OPTION(READ_MOVES);
+    PA_ADD_OPTION(UTILITY_ABILITIES);
+    PA_ADD_OPTION(UTILITY_ITEMS);
+    PA_ADD_OPTION(UTILITY_MOVES);
     PA_ADD_OPTION(VIDEO_DELAY);
     PA_ADD_OPTION(GAME_DELAY);
     PA_ADD_OPTION(OUTPUT_FILE);
@@ -240,36 +312,64 @@ BoxSorterMaster::BoxSorterMaster()
 
 
 // ---------------------------------------------------------------------------
-// read_summary_screen_with_ivs
+// read_summary_screen_with_extras
 // ---------------------------------------------------------------------------
 
-void BoxSorterMaster::read_summary_screen_with_ivs(
+void BoxSorterMaster::read_summary_screen_with_extras(
     SingleSwitchProgramEnvironment& env,
     ProControllerContext& context,
     CollectedPokemonInfo& info,
     Language ot_language,
+    bool read_extras,
     bool read_ivs,
-    Language iv_language
+    Language iv_language,
+    bool read_moves,
+    Language extras_language
 ){
-    // Always read the base summary screen first (also advances to next slot via R).
-    // read_summary_screen presses R at the end to move to the next summary.
-    // We must press R *after* the optional IV read, so we do not call
-    // read_summary_screen and instead open the screen manually here for IV reads.
-    // However, read_summary_screen in BoxNavigation.cpp already handles the full
-    // summary reading AND presses R at the end.
+    // Strategy (all optional reads happen before the standard summary read so we
+    // end on the summary screen, which read_summary_screen() then uses and
+    // advances via R to the next Pokémon):
     //
-    // Strategy: call read_summary_screen for all the standard fields (it presses R
-    // at the end to advance to the next Pokémon).  For IV reads we must intercept
-    // before that R press.  Since we cannot easily split read_summary_screen, we
-    // adopt a two-phase approach:
-    //   Phase 1: read IVs (press Y, read, press B to return to summary).
-    //   Phase 2: call read_summary_screen which reads the summary and then presses R.
-    // This means the IV read happens before the standard summary read, which is fine
-    // because both look at the same Pokémon.
+    //   Phase 1 (no nav): if READ_EXTRAS, snapshot summary → read ability/nature/item.
+    //   Phase 2 (Y nav): if READ_IVS, press Y → Judge screen → read → press B back.
+    //   Phase 3 (R nav): if READ_MOVES, press R → moves screen → read → press B back.
+    //   Phase 4: call read_summary_screen() → reads summary fields + presses R (advance).
 
     BoxSorterMaster_Descriptor::Stats& stats =
         env.current_stats<BoxSorterMaster_Descriptor::Stats>();
 
+    // ---- Phase 1: Extras (ability / nature / held item) — no navigation ----
+    if (read_extras && extras_language != Language::None){
+        VideoSnapshot screen = env.console.video().snapshot();
+        VideoOverlaySet extras_vo(env.console);
+        make_summary_extras_overlays(extras_vo);
+        SummaryExtras se = read_summary_extras(env.console, screen, extras_language);
+
+        // A successful read means we got at least the ability (nature is always
+        // present; item may be empty for no-held-item).  We always mark
+        // extras_read=true when READ_EXTRAS fires — partial results are still
+        // useful for routing.
+        info.ability_slug    = se.ability_slug;
+        info.nature          = se.nature;
+        info.held_item_slug  = se.held_item_slug;
+        info.extras_read     = true;
+        stats.extras_read++;
+        env.update_stats();
+        env.log(
+            "Extras read: ability=" + se.ability_slug +
+            " nature=" + se.nature +
+            " held_item=" + se.held_item_slug
+        );
+    }
+    else if (read_extras && extras_language == Language::None){
+        // Warn: flag on but language unset — cannot read.
+        info.extras_read = false;
+        stats.extras_failed++;
+        env.update_stats();
+        env.log("BoxSorterMaster: READ_EXTRAS on but EXTRAS_LANGUAGE is None — skipping extras read.", COLOR_YELLOW);
+    }
+
+    // ---- Phase 2: IV Judge read (press Y → read → press B back) ----
     if (read_ivs && iv_language != Language::None){
         // Press Y to open the Judge/stat view from the summary screen.
         pbf_press_button(context, BUTTON_Y, 80ms, 500ms);
@@ -297,7 +397,6 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
                 // Return to summary screen.
                 pbf_press_button(context, BUTTON_B, 80ms, 400ms);
                 context.wait_for_all_requests();
-                // Confirm we're back on the summary screen (symmetric with Judge-entry watcher).
                 {
                     SummaryScreenWatcher back_watcher(&env.console.overlay());
                     int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
@@ -320,10 +419,10 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
                 IVSummary s = summarize_ivs(r);
 
                 if (s.read){
-                    info.iv_read        = true;
-                    info.iv_best_count  = s.best_count;
+                    info.iv_read           = true;
+                    info.iv_best_count     = s.best_count;
                     info.iv_total_estimate = s.total_estimate;
-                    info.iv_perfect     = s.perfect;
+                    info.iv_perfect        = s.perfect;
                     stats.iv_read++;
                     env.update_stats();
                     env.log(
@@ -342,7 +441,7 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
                 // Return to summary screen.
                 pbf_press_button(context, BUTTON_B, 80ms, 400ms);
                 context.wait_for_all_requests();
-                // Confirm we're back (Important 6: symmetric to the Judge-entry watcher).
+                // Confirm we're back (symmetric to the Judge-entry watcher).
                 {
                     SummaryScreenWatcher back_watcher(&env.console.overlay());
                     int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
@@ -358,8 +457,91 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
         }
     }
 
-    // Read standard summary fields (dex #, shiny, gmax, ball, gender, OT, types,
-    // origin mark) and advance to the next summary screen via R.
+    // ---- Phase 3: Moves screen (press R → read → press B back) ----
+    if (read_moves && extras_language != Language::None){
+        // Navigate: summary → moves screen.
+        // BUTTON_R is the documented button for switching to the moves page in HOME.
+        // Calibrate exact timing on hardware rig.
+        pbf_press_button(context, BUTTON_R, 80ms, 500ms);  // calibrate on rig
+        context.wait_for_all_requests();
+
+        // Wait for the moves screen to stabilise via a frozen-image check on
+        // the move-slot area (mirrors the Judge screen approach above).
+        {
+            VideoOverlaySet vo(env.console);
+            FrozenImageDetector moves_frozen(
+                COLOR_GREEN,
+                { 0.62, 0.22, 0.28, 0.06 },   // Move 1 slot area — calibrate on rig
+                Milliseconds(80),
+                20
+            );
+            moves_frozen.make_overlays(vo);
+            int ret = wait_until(env.console, context, Seconds(5), { moves_frozen });
+            if (ret != 0){
+                // Moves screen not detected — skip and continue.
+                env.log("BoxSorterMaster: Moves screen not confirmed — skipping moves read for this slot.", COLOR_YELLOW);
+                info.moves_read = false;
+                stats.moves_failed++;
+                env.update_stats();
+                // Press B to return to summary and confirm.
+                pbf_press_button(context, BUTTON_B, 80ms, 400ms);
+                context.wait_for_all_requests();
+                {
+                    SummaryScreenWatcher back_watcher(&env.console.overlay());
+                    int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
+                    if (back_ret != 0){
+                        OperationFailedException::fire(
+                            ErrorReport::SEND_ERROR_REPORT,
+                            "BoxSorterMaster: Summary screen not found after B from moves screen",
+                            env.console
+                        );
+                    }
+                }
+            }
+            else{
+                // Moves screen confirmed — snapshot and read.
+                VideoSnapshot screen = env.console.video().snapshot();
+                MovesReaderScope moves_scope(env.console.overlay(), extras_language);
+                std::vector<std::string> move_slugs =
+                    moves_scope.read(env.console.logger(), screen);
+
+                info.moves      = move_slugs;
+                info.moves_read = true;
+                stats.moves_read++;
+                env.update_stats();
+                {
+                    std::ostringstream oss;
+                    oss << "Moves read: [";
+                    for (size_t i = 0; i < move_slugs.size(); i++){
+                        if (i > 0){ oss << ", "; }
+                        oss << move_slugs[i];
+                    }
+                    oss << "]";
+                    env.log(oss.str());
+                }
+
+                // Return to summary screen.
+                pbf_press_button(context, BUTTON_B, 80ms, 400ms);
+                context.wait_for_all_requests();
+                // Confirm return (symmetric to moves-entry approach).
+                {
+                    SummaryScreenWatcher back_watcher(&env.console.overlay());
+                    int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
+                    if (back_ret != 0){
+                        OperationFailedException::fire(
+                            ErrorReport::SEND_ERROR_REPORT,
+                            "BoxSorterMaster: Summary screen not found after B from moves screen",
+                            env.console
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Phase 4: Standard summary fields + R to advance ----
+    // read_summary_screen reads dex#, shiny, gmax, ball, gender, OT, types,
+    // origin mark, and presses R at the end to advance to the next Pokémon.
     read_summary_screen(env, context, info, ot_language);
 }
 
@@ -396,8 +578,11 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
     size_t starting_box,           // 0-indexed absolute box number
     BoxCursor nav_cursor,
     Language ot_language,
+    bool read_extras,
     bool read_ivs,
     Language iv_language,
+    bool read_moves,
+    Language extras_language,
     const std::string& output_path,
     size_t already_done_boxes,
     const std::vector<size_t>& saved_fingerprints,  // Part C.2: occupancy mismatch check
@@ -540,10 +725,12 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
                     const size_t g = to_global_index(box_rel, row, col);
                     if (!catalogue[g].has_value()){ continue; }
 
-                    read_summary_screen_with_ivs(
+                    read_summary_screen_with_extras(
                         env, context,
                         catalogue[g].value(),
-                        ot_language, read_ivs, iv_language
+                        ot_language,
+                        read_extras, read_ivs, iv_language,
+                        read_moves, extras_language
                     );
                 }
             }
@@ -601,11 +788,13 @@ void BoxSorterMaster::program(
 ){
     StartProgramChecks::check_performance_class_wired_or_wireless(context);
 
-    const size_t scan_start  = static_cast<size_t>(SCAN_BOX_START - 1);  // 0-indexed
-    const size_t scan_count  = static_cast<size_t>(SCAN_BOX_COUNT);
-    const bool   read_ivs    = static_cast<bool>(READ_IVS);
-    const bool   fresh_start = static_cast<bool>(FRESH_START);
-    const bool   dry_run     = static_cast<bool>(DRY_RUN);
+    const size_t scan_start    = static_cast<size_t>(SCAN_BOX_START - 1);  // 0-indexed
+    const size_t scan_count    = static_cast<size_t>(SCAN_BOX_COUNT);
+    const bool   read_extras   = static_cast<bool>(READ_EXTRAS);
+    const bool   read_ivs      = static_cast<bool>(READ_IVS);
+    const bool   read_moves    = static_cast<bool>(READ_MOVES);
+    const bool   fresh_start   = static_cast<bool>(FRESH_START);
+    const bool   dry_run       = static_cast<bool>(DRY_RUN);
 
     if (scan_start + scan_count > MAX_HOME_BOXES_MASTER){
         throw UserSetupError(
@@ -614,8 +803,9 @@ void BoxSorterMaster::program(
         );
     }
 
-    const Language ot_lang = static_cast<Language>(OT_NAME_LANGUAGE);
-    const Language iv_lang = static_cast<Language>(IV_LANGUAGE);
+    const Language ot_lang      = static_cast<Language>(OT_NAME_LANGUAGE);
+    const Language iv_lang      = static_cast<Language>(IV_LANGUAGE);
+    const Language extras_lang  = static_cast<Language>(EXTRAS_LANGUAGE);
 
     const std::string output_path =
         static_cast<std::string>(OUTPUT_FILE) + ".json";
@@ -626,11 +816,29 @@ void BoxSorterMaster::program(
         env.log("BoxSorterMaster: DRY RUN mode — cataloguing only, no moves will be made.");
     }
 
+    // Warn if READ_EXTRAS is on but EXTRAS_LANGUAGE is None.
+    if (read_extras && extras_lang == Language::None){
+        env.log(
+            "BoxSorterMaster: WARNING — READ_EXTRAS is enabled but EXTRAS_LANGUAGE is None. "
+            "Ability/nature/item will NOT be read; Utility routing by ability/item will not fire.",
+            COLOR_YELLOW
+        );
+    }
+
     // Part C.3: Warn if READ_IVS is on but IV_LANGUAGE is None (IVs won't be read).
     if (read_ivs && iv_lang == Language::None){
         env.log(
             "BoxSorterMaster: WARNING — READ_IVS is enabled but IV_LANGUAGE is None. "
             "IVs will NOT be read; IV-based routing will silently degrade to non-IV paths.",
+            COLOR_YELLOW
+        );
+    }
+
+    // Warn if READ_MOVES is on but EXTRAS_LANGUAGE is None (moves use the same OCR language).
+    if (read_moves && extras_lang == Language::None){
+        env.log(
+            "BoxSorterMaster: WARNING — READ_MOVES is enabled but EXTRAS_LANGUAGE is None. "
+            "Moves will NOT be read; Utility routing by move will not fire.",
             COLOR_YELLOW
         );
     }
@@ -764,8 +972,11 @@ void BoxSorterMaster::program(
         scan_start,
         nav_cursor,
         ot_lang,
+        read_extras,
         read_ivs,
         iv_lang,
+        read_moves,
+        extras_lang,
         output_path,
         already_done_boxes,
         saved_fingerprints,   // Part C.2: for occupancy mismatch check on resume
@@ -810,6 +1021,53 @@ void BoxSorterMaster::program(
         );
     }
 
+    // Parse UTILITY_* string lists into normalized slug vectors.
+    // Helper lambda: split on commas and newlines, lowercase, strip whitespace.
+    auto parse_slug_list = [&](const std::string& raw) -> std::vector<std::string> {
+        std::vector<std::string> result;
+        // Replace newlines with commas so we can use a single getline split.
+        std::string normalized_raw = raw;
+        std::replace(normalized_raw.begin(), normalized_raw.end(), '\n', ',');
+        std::istringstream ss(normalized_raw);
+        std::string tok;
+        while (std::getline(ss, tok, ',')){
+            // Trim whitespace.
+            auto ts = tok.find_first_not_of(" \t\r");
+            auto te = tok.find_last_not_of(" \t\r");
+            if (ts == std::string::npos){ continue; }
+            tok = tok.substr(ts, te - ts + 1);
+            if (tok.empty()){ continue; }
+            // Lowercase.
+            std::transform(tok.begin(), tok.end(), tok.begin(),
+                           [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+            result.push_back(tok);
+        }
+        return result;
+    };
+
+    const std::vector<std::string> utility_abilities =
+        parse_slug_list(static_cast<std::string>(UTILITY_ABILITIES));
+    const std::vector<std::string> utility_items =
+        parse_slug_list(static_cast<std::string>(UTILITY_ITEMS));
+    const std::vector<std::string> utility_moves_list =
+        parse_slug_list(static_cast<std::string>(UTILITY_MOVES));
+
+    // Warn if READ_EXTRAS/READ_MOVES are on but the corresponding target lists are empty.
+    if (read_extras && utility_abilities.empty() && utility_items.empty()){
+        env.log(
+            "BoxSorterMaster: WARNING — READ_EXTRAS is on but UTILITY_ABILITIES and "
+            "UTILITY_ITEMS are both empty. No Pokémon will be routed to Utility by ability/item.",
+            COLOR_YELLOW
+        );
+    }
+    if (read_moves && utility_moves_list.empty()){
+        env.log(
+            "BoxSorterMaster: WARNING — READ_MOVES is on but UTILITY_MOVES is empty. "
+            "No Pokémon will be routed to Utility by move.",
+            COLOR_YELLOW
+        );
+    }
+
     // Build RouterConfig from live program options.
     RouterConfig router_cfg;
     router_cfg.owner_ot_names    = owner_ot_set;
@@ -826,6 +1084,30 @@ void BoxSorterMaster::program(
     router_cfg.mythical    = layout.mythical.empty()    ? nullptr : &layout.mythical;
     router_cfg.ultra_beast = layout.ultra_beast.empty() ? nullptr : &layout.ultra_beast;
     router_cfg.paradox     = layout.paradox.empty()     ? nullptr : &layout.paradox;
+
+    // Populate utility_rules from the parsed option lists.
+    for (const auto& slug : utility_abilities){
+        router_cfg.utility_rules.push_back({ UtilityRule::Ability, slug });
+    }
+    for (const auto& slug : utility_items){
+        router_cfg.utility_rules.push_back({ UtilityRule::Item, slug });
+    }
+    for (const auto& slug : utility_moves_list){
+        router_cfg.utility_rules.push_back({ UtilityRule::Move, slug });
+    }
+    if (!router_cfg.utility_rules.empty()){
+        std::ostringstream oss;
+        oss << "BoxSorterMaster: Utility rules (" << router_cfg.utility_rules.size() << "): [";
+        for (size_t i = 0; i < router_cfg.utility_rules.size(); i++){
+            if (i > 0){ oss << ", "; }
+            const auto& ur = router_cfg.utility_rules[i];
+            oss << (ur.kind == UtilityRule::Ability ? "ability:" :
+                    ur.kind == UtilityRule::Item    ? "item:"    : "move:")
+                << ur.target_slug;
+        }
+        oss << "]";
+        env.log(oss.str());
+    }
 
     // Scratch buffer = scratch_box_count (3) boxes immediately after the scan range.
     const uint16_t scratch_box_start = static_cast<uint16_t>(scan_start + scan_count);
@@ -1057,6 +1339,17 @@ void write_catalogue_incremental(
             entry["iv_best_count"]  = static_cast<int64_t>(pkmn->iv_best_count);
             entry["iv_total_estimate"] = static_cast<int64_t>(pkmn->iv_total_estimate);
             entry["iv_perfect"]     = pkmn->iv_perfect;
+            // v2 extras/moves fields
+            entry["ability_slug"]   = pkmn->ability_slug;
+            entry["nature"]         = pkmn->nature;
+            entry["held_item_slug"] = pkmn->held_item_slug;
+            entry["extras_read"]    = pkmn->extras_read;
+            entry["moves_read"]     = pkmn->moves_read;
+            JsonArray moves_arr;
+            for (const auto& m : pkmn->moves){
+                moves_arr.push_back(m);
+            }
+            entry["moves"] = std::move(moves_arr);
         }
         slots.push_back(std::move(entry));
     }
@@ -1184,6 +1477,24 @@ bool load_catalogue_resume(
             else if (g_str == "Female")    { info.gender = Pokemon::StatsHuntGenderFilter::Female; }
             else if (g_str == "Any")       { info.gender = Pokemon::StatsHuntGenderFilter::Any; }
             else                           { info.gender = Pokemon::StatsHuntGenderFilter::Genderless; }
+        }
+
+        // v2: extras / moves round-trip
+        info.ability_slug   = obj->get_string_default("ability_slug", "");
+        info.nature         = obj->get_string_default("nature", "");
+        info.held_item_slug = obj->get_string_default("held_item_slug", "");
+        info.extras_read    = obj->get_boolean_default("extras_read", false);
+        info.moves_read     = obj->get_boolean_default("moves_read", false);
+        {
+            const JsonArray* marr = obj->get_array("moves");
+            if (marr){
+                for (const JsonValue& mv : *marr){
+                    const std::string* s = mv.to_string();
+                    if (s && !s->empty()){
+                        info.moves.push_back(*s);
+                    }
+                }
+            }
         }
 
         loaded.push_back(std::move(info));

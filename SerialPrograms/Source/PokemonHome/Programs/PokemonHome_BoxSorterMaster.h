@@ -18,6 +18,7 @@
 #include "CommonTools/Options/LanguageOCROption.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
+#include "PokemonHome_MasterBoxRouter.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -41,22 +42,30 @@ public:
     virtual void program(SingleSwitchProgramEnvironment& env, ProControllerContext& context) override;
 
 private:
-    // Read the summary screen for a Pokémon and, if READ_IVS is enabled,
-    // open the Judge view (Y button), read all six IV ratings via IvJudgeReaderScope,
-    // summarize with summarize_ivs(), assign IV fields onto info, then return to summary (B).
-    // If the Judge view cannot be confirmed or any stat is UnableToDetect, sets
-    // info.iv_read = false and continues — does NOT abort the run.
-    void read_summary_screen_with_ivs(
+    // Read the summary screen for a Pokémon.
+    //  - if READ_EXTRAS: read ability/nature/held item from the current summary
+    //    screen (no navigation) and assign onto info.
+    //  - if READ_IVS: open the Judge view (Y button), read all six IV ratings via
+    //    IvJudgeReaderScope, summarize with summarize_ivs(), assign IV fields onto
+    //    info, then return to summary (B).
+    //  - if READ_MOVES: navigate to the moves screen (BUTTON_R), snapshot, read via
+    //    MovesReaderScope, then return to summary confirmed by SummaryScreenWatcher.
+    // On any screen-not-found: set the relevant *_read=false and continue — does
+    // NOT abort the run.
+    void read_summary_screen_with_extras(
         SingleSwitchProgramEnvironment& env,
         ProControllerContext& context,
         CollectedPokemonInfo& info,
         Language ot_language,
+        bool read_extras,
         bool read_ivs,
-        Language iv_language
+        Language iv_language,
+        bool read_moves,
+        Language extras_language
     );
 
     // Walk SCAN_BOX_COUNT boxes starting at SCAN_BOX_START-1 (0-indexed), reading
-    // each occupied Pokémon via read_summary_screen_with_ivs.  After each box,
+    // each occupied Pokémon via read_summary_screen_with_extras.  After each box,
     // calls write_catalogue_incremental to flush progress to disk.
     // Returns the final nav cursor position.
     [[nodiscard]] BoxCursor catalogue_boxes(
@@ -67,8 +76,11 @@ private:
         size_t starting_box,
         BoxCursor nav_cursor,
         Language ot_language,
+        bool read_extras,
         bool read_ivs,
         Language iv_language,
+        bool read_moves,
+        Language extras_language,
         const std::string& output_path,
         size_t already_done_boxes,         // resume offset: skip this many boxes at front
         const std::vector<size_t>& saved_fingerprints,  // Part C.2: occupancy mismatch check
@@ -98,6 +110,14 @@ private:
     StringOption OWNER_OT_NAMES;
 
     // -----------------------------------------------------------------------
+    // Extras options (ability / nature / held item — same summary screen, no nav)
+    // -----------------------------------------------------------------------
+    BooleanCheckBoxOption READ_EXTRAS;
+    // Language used for ability/nature/item OCR.  Reuses the OT language if
+    // they are the same, but kept separate so the user can mix them.
+    OCR::LanguageOCROption EXTRAS_LANGUAGE;
+
+    // -----------------------------------------------------------------------
     // IV options
     // -----------------------------------------------------------------------
     BooleanCheckBoxOption READ_IVS;
@@ -108,6 +128,20 @@ private:
     SimpleIntegerOption<uint8_t>  BREEDING_MAX;
     SimpleIntegerOption<uint8_t>  BREEDJECT_MIN;
     SimpleIntegerOption<uint8_t>  BREEDJECT_MAX;
+
+    // -----------------------------------------------------------------------
+    // Moves options
+    // -----------------------------------------------------------------------
+    BooleanCheckBoxOption READ_MOVES;
+
+    // -----------------------------------------------------------------------
+    // Utility routing target lists
+    // Comma-separated or newline-separated ability/item/move slugs.
+    // Parsed into RouterConfig.utility_rules at program start.
+    // -----------------------------------------------------------------------
+    StringOption UTILITY_ABILITIES;
+    StringOption UTILITY_ITEMS;
+    StringOption UTILITY_MOVES;
 
     // -----------------------------------------------------------------------
     // Timing options
