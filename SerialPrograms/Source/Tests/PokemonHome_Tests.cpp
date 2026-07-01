@@ -5,8 +5,10 @@
  */
 
 
+#include "CommonFramework/Globals.h"
 #include "PokemonHome/Inference/PokemonHome_ButtonDetector.h"
 #include "PokemonHome/Inference/PokemonHome_IvSummary.h"
+#include "PokemonHome/Programs/PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouter.h"
 #include "Pokemon/Inference/Pokemon_IvJudgeReader.h"
 #include "PokemonHome_Tests.h"
@@ -147,6 +149,18 @@ int test_pokemonHome_MasterBoxRouter(const ImageViewRGB32& /*image*/){
     para_foreign.dex_number = 984;  // in the paradox set
     TEST_RESULT_EQUAL((int)route(para_foreign, cfg, false, true), (int)BoxCategory::Paradox);
 
+    return 0;
+}
+
+int test_pokemonHome_MasterBoxLayout(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    MasterBoxLayout L = load_master_box_layout(
+        RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout.json"
+    );
+    TEST_RESULT_EQUAL(L.living_dex_start_box, (uint16_t)1);
+    TEST_RESULT_EQUAL(L.mythical.count(151) > 0, true);
+    TEST_RESULT_EQUAL(L.legendary.count(144) > 0, true);
+    TEST_RESULT_EQUAL(L.category_box_ranges.at(BoxCategory::LivingDex).second, (uint16_t)35);
     return 0;
 }
 
