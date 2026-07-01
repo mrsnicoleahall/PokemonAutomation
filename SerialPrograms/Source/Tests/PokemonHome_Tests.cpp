@@ -528,6 +528,33 @@ int test_pokemonHome_UtilityRouting(const ImageViewRGB32& /*image*/){
     PA plain{}; plain.dex_number=1; plain.ot_name="nicole"; plain.iv_read=true;
     TEST_RESULT_EQUAL((int)route(plain,cfg,false,true), (int)BoxCategory::LivingDex);
 
+    // -----------------------------------------------------------------------
+    // Format-contract regression: OCR strips hyphens ("flamebody") but defaults
+    // are hyphenated ("flame-body").  canon_slug on both sides must bridge this.
+    // -----------------------------------------------------------------------
+
+    // Ability: OCR-normalised "flamebody" must match default rule "flame-body".
+    PA ocr_ability{};
+    ocr_ability.dex_number = 126; ocr_ability.ot_name = "nicole"; ocr_ability.iv_read = true;
+    ocr_ability.ability_slug = "flamebody";   // hyphen-stripped OCR output
+    // utility_rules has {Ability, "flame-body"} (hyphenated default)
+    TEST_RESULT_EQUAL((int)route(ocr_ability,cfg,false,true), (int)BoxCategory::Utility);
+
+    // Item: OCR-normalised "amuletcoin" must match default rule "amulet-coin".
+    PA ocr_item{};
+    ocr_item.dex_number = 52; ocr_item.ot_name = "nicole"; ocr_item.iv_read = true;
+    ocr_item.held_item_slug = "amuletcoin";   // hyphen-stripped OCR output
+    // utility_rules has {Item, "amulet-coin"} (hyphenated default)
+    TEST_RESULT_EQUAL((int)route(ocr_item,cfg,false,true), (int)BoxCategory::Utility);
+
+    // Move: OCR tokens use hyphenated keys ("false-swipe" from PokemonMovesOCR.json);
+    // canon_slug must still match against the hyphenated default rule "false-swipe".
+    // (Both sides are already hyphenated here — canon_slug is idempotent on alphanumerics.)
+    PA ocr_move{};
+    ocr_move.dex_number = 286; ocr_move.ot_name = "nicole"; ocr_move.iv_read = true;
+    ocr_move.moves = {"false-swipe", "spore"};   // hyphenated keys as stored by MovesReaderScope
+    TEST_RESULT_EQUAL((int)route(ocr_move,cfg,false,true), (int)BoxCategory::Utility);
+
     return 0;
 }
 

@@ -74,7 +74,7 @@ and only ever moves a Pokémon into an empty/scratch slot. If it can't find room
 | `BREEDJECT_MIN`/`MAX` | **1 / 2** | 31-count range for Breedjects. |
 | `READ_EXTRAS` | **true** | (v2) Reads ability + nature + held item off the summary (no extra screen). Drives the Utility box. |
 | `READ_MOVES` | **true** | (v2) Opens the moves screen per Pokémon to read moves (Catcher/Pay-Day). Slower + one more calibration surface; turn off to skip. |
-| `EXTRAS_LANGUAGE` / `MOVES_LANGUAGE` | — | Set (e.g. English) when the matching read flag is on, or those reads come back blank. |
+| `EXTRAS_LANGUAGE` | — | Set (e.g. English) when `READ_EXTRAS` or `READ_MOVES` is on, or those reads come back blank. Moves reuse this same language setting — there is no separate `MOVES_LANGUAGE` option. |
 | Utility target lists | abilities **flame-body, magma-armor, synchronize, pickup, run-away** · items **amulet-coin, smoke-ball** · moves **false-swipe, pay-day** | Editable; a Pokémon matching any target routes to the Utility box. |
 | `VIDEO_DELAY` / `GAME_DELAY` | — | Capture-card / HOME-app timing. |
 | `OUTPUT_FILE` | **home_catalogue** | Basename for the `.json`, `_plan.json`, `_progress.json`. |

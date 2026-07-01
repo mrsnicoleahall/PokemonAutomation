@@ -469,7 +469,7 @@ void BoxSorterMaster::read_summary_screen_with_extras(
     }
 
     // ---- Phase 3: Moves screen (press R → read → press B back) ----
-    if (read_moves && extras_language != Language::None){
+    if (read_moves && extras_language != Language::None){  // moves intentionally reuse EXTRAS_LANGUAGE
         // Navigate: summary → moves screen.
         // BUTTON_R is the documented button for switching to the moves page in HOME.
         // Calibrate exact timing on hardware rig.
@@ -509,7 +509,8 @@ void BoxSorterMaster::read_summary_screen_with_extras(
                             "(miss path) — moves_read=false, continuing.",
                             COLOR_YELLOW
                         );
-                        return;
+                        // fall through to the standard summary read (Phase 4) — it reads the core
+                        // fields and presses R to advance; skipping it would desync the box.
                     }
                 }
             }
@@ -552,7 +553,8 @@ void BoxSorterMaster::read_summary_screen_with_extras(
                             "(post-read) — moves_read=false, continuing.",
                             COLOR_YELLOW
                         );
-                        return;
+                        // fall through to the standard summary read (Phase 4) — it reads the core
+                        // fields and presses R to advance; skipping it would desync the box.
                     }
                 }
             }

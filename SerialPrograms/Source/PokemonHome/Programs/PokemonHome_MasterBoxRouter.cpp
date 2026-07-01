@@ -19,9 +19,30 @@
 
 #include "PokemonHome_MasterBoxRouter.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace PokemonAutomation{
 namespace NintendoSwitch{
 namespace PokemonHome{
+
+
+// ---------------------------------------------------------------------------
+// Internal helper — canonicalise a slug for format-agnostic comparison.
+// Lowercases and strips every non-alphanumeric character so that OCR output
+// ("flamebody") matches hyphenated defaults ("flame-body"), and so the move
+// branch handles both hyphenated dictionary keys and space-separated forms.
+// ---------------------------------------------------------------------------
+static std::string canon_slug(const std::string& s){
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s){
+        if (std::isalnum(c)){
+            out += static_cast<char>(std::tolower(c));
+        }
+    }
+    return out;
+}
 
 
 // ---------------------------------------------------------------------------
@@ -51,17 +72,20 @@ bool is_owner_ot(const Pokemon::CollectedPokemonInfo& p, const std::set<std::str
 }
 
 bool p_matches_utility(const Pokemon::CollectedPokemonInfo& p, const std::vector<UtilityRule>& rules){  // v2
+    // Use canon_slug on both sides so OCR-normalised slugs (hyphens stripped,
+    // e.g. "flamebody") match hyphenated defaults ("flame-body"), and vice-versa.
     for (const UtilityRule& r : rules){
+        const std::string canon_target = canon_slug(r.target_slug);
         switch (r.kind){
         case UtilityRule::Ability:
-            if (p.ability_slug == r.target_slug) return true;
+            if (canon_slug(p.ability_slug) == canon_target) return true;
             break;
         case UtilityRule::Item:
-            if (p.held_item_slug == r.target_slug) return true;
+            if (canon_slug(p.held_item_slug) == canon_target) return true;
             break;
         case UtilityRule::Move:
             for (const std::string& m : p.moves){
-                if (m == r.target_slug) return true;
+                if (canon_slug(m) == canon_target) return true;
             }
             break;
         }
