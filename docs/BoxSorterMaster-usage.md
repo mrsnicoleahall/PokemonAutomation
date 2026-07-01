@@ -72,6 +72,10 @@ and only ever moves a Pokémon into an empty/scratch slot. If it can't find room
 | `COMPETITIVE_MIN31` | **6** | Stats at 31 to count as Competitive (flawless). |
 | `BREEDING_MIN`/`MAX` | **3 / 5** | 31-count range for the Breeding box. |
 | `BREEDJECT_MIN`/`MAX` | **1 / 2** | 31-count range for Breedjects. |
+| `READ_EXTRAS` | **true** | (v2) Reads ability + nature + held item off the summary (no extra screen). Drives the Utility box. |
+| `READ_MOVES` | **true** | (v2) Opens the moves screen per Pokémon to read moves (Catcher/Pay-Day). Slower + one more calibration surface; turn off to skip. |
+| `EXTRAS_LANGUAGE` / `MOVES_LANGUAGE` | — | Set (e.g. English) when the matching read flag is on, or those reads come back blank. |
+| Utility target lists | abilities **flame-body, magma-armor, synchronize, pickup, run-away** · items **amulet-coin, smoke-ball** · moves **false-swipe, pay-day** | Editable; a Pokémon matching any target routes to the Utility box. |
 | `VIDEO_DELAY` / `GAME_DELAY` | — | Capture-card / HOME-app timing. |
 | `OUTPUT_FILE` | **home_catalogue** | Basename for the `.json`, `_plan.json`, `_progress.json`. |
 | `DRY_RUN` | **false** | Catalogue + plan only; moves nothing. **Run this first.** |
@@ -84,44 +88,53 @@ and only ever moves a Pokémon into an empty/scratch slot. If it can't find room
 **Automated** (readable): Living Dex by National Dex, best-specimen contention
 (Shiny → your OT → most 31-IVs → …), Duplicate Shinies, Good Trades (foreign OT),
 Events (Cherish ball / GO / origin marks), Legendary / Mythical / Ultra Beast / Paradox
-(by dex #), and Competitive / Breeding / Breedjects (by Judge IV counts).
+(by dex #), Competitive / Breeding / Breedjects (by Judge IV counts), and — **as of v2** —
+the **Utility box** (Hatcher/Synchronizer/Farmers/Evader/Money-Maker/Catcher) via reading
+ability + held item + moves. Utility is checked *after* the IV boxes, so a flawless
+Synchronize mon still files as Competitive. Your Breloom **and** Smeargles both match the
+Catcher rule (False Swipe) and land in Utility together.
 
-**Left for you** (unreadable or v1-limited) — routed to Manual Sort boxes, never
-released: Nature/EV/ribbon/mark/favorite-dependent choices, and **alternate forms**.
-Note the v1 form limitation (see design §10): the sorter does not yet distinguish an
-alt form from the base species, so when you own both, the extra copy lands in the
-**ManualOther** box for hand-sorting rather than a dedicated Forms box.
+**Left for you** (truly unreadable) — routed to Manual Sort boxes, never released:
+**EV / ribbon / mark / favorite**-dependent choices, **egg group** (never shown in HOME),
+and **alternate forms**. Note the form limitation (see design §10): the sorter does not
+yet distinguish an alt form from the base species, so when you own both, the extra copy
+lands in the **ManualOther** box for hand-sorting rather than a dedicated Forms box.
+*(Nature, ability, held item, and moves ARE read as of v2.)*
 
 **Never auto-released / never overwritten:** Shiny · your OT · Legendary · Mythical ·
 Event · perfect-IV (6×31). The "Junk" box is a manual review bucket only.
 
 ---
 
-## Manual-curated boxes (reference checklist)
+## Utility box (Box 60) — now AUTO-sorted (v2)
 
-These boxes are defined by attributes the automation **cannot read from HOME**
-(ability, nature, moves, held item, egg group, language). The sorter never touches
-them by content — keep them by hand. Recorded here as your reference:
+v2 reads ability + held item + moves, so the sorter fills the Utility box automatically.
+A Pokémon matching any Utility target (editable lists) routes here:
 
-### Box 60 — Utility ("expedition toolkit", 30 slots)
-- **Hatcher** — Flame Body / Magma Armor (halves egg steps).
-- **Catcher** — high level, False Swipe + a status move (Spore / Thunder Wave).
-- **Synchronizer** — Synchronize in every nature (e.g. a box of Ralts) to force wild natures.
-- **Farmers** — Pickup, to passively gather items.
-- **Money Maker** — holds Amulet Coin, ideally knows Pay Day.
-- **Evader / Flee Master** — Run Away, or holds Smoke Ball, for escaping encounters.
+| Role | Auto-detected by | Default target |
+|---|---|---|
+| Hatcher | ability | Flame Body / Magma Armor |
+| Synchronizer | ability (+ nature is also read) | Synchronize |
+| Farmers | ability | Pickup |
+| Evader / Flee Master | ability / held item | Run Away / Smoke Ball |
+| Money Maker | held item (+ move) | Amulet Coin / Pay Day |
+| Catcher | move | False Swipe (Breloom **and** Smeargle both match) |
 
-### Boxes 62 (–63) — Breeding (Masuda + competitive IV)
-- **Ditto base** — foreign-language Dittos (Masuda shiny odds) + 5–6×31 IV Dittos in
-  various natures (Modest / Adamant / Timid / Jolly …).
-- **Egg Group Masters** — perfect-IV male parents by egg group (Field / Monster / Bug …)
-  to pass egg moves + stats.
-- **W.I.P. rows** — leave a section empty for sorting freshly hatched eggs.
+Utility is a **route-all** box (no single-slot contention) — a full Synchronizer set of
+natures all land here. It's checked *after* the IV boxes, so a flawless Synchronize mon
+files as Competitive instead. Requires `READ_EXTRAS` (and `READ_MOVES` for the Catcher/
+Pay-Day roles). The ability/item/move crops + the moves-screen navigation are calibrated
+on the rig (`CalibrateIVJudge` dumps them).
 
-**What the sorter *can* still do here:** a Ditto with high Judge IVs is detectable by
-species + 31-count, so it will land in **Competitive** (6×31) or **Breeding** (3–5×31)
-by the normal IV rules — a flawless Ditto currently files under Competitive (it's a
-breeding tool; you may prefer to move it to Breeding by hand). Foreign-language Ditto is
-only fuzzily inferable (OT-name language ≠ your game) and is **not** auto-filed.
-Everything else in these two boxes is manual. (A future version could special-case
-Ditto → Breeding and read held items if HOME's UI exposes them.)
+## Breeding box (62–63) — partial auto (v2)
+
+- **Ditto base** — a Ditto with high Judge IVs auto-files to **Competitive** (6×31) or
+  **Breeding** (3–5×31) by the normal IV rules. (A flawless Ditto lands in Competitive;
+  move to Breeding by hand if you prefer.) Foreign-language Ditto is only fuzzily inferable
+  and is **not** auto-filed.
+- **Egg Group Masters** — egg group is **never shown in HOME**, so grouping by egg group
+  stays **manual**. Nature and moves are now read, which helps you identify parents.
+- **W.I.P. rows** — leave a section empty for sorting freshly hatched eggs (manual).
+
+**Still never readable** (stays manual): EV/ribbon/mark/favorite; egg group. Alternate
+forms sharing a Dex # still aren't separated (extra copies → ManualOther).

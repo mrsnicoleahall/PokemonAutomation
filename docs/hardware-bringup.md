@@ -92,15 +92,24 @@ manual button presses before automating anything.
 
 ---
 
-## Phase 4 — Calibrate the IV Judge reader (one-time)
+## Phase 4 — Calibrate the readers (one-time)
+
+The **`CalibrateIVJudge`** dev program (Developer-mode panel) now dumps **all** the reader
+crops in one run — IVs, ability/nature/held-item, and moves — so we tune everything at once.
 
 - [ ] Confirm **HOME Premium** is active (needed for the Judge screen). ✅ (you have it)
-- [ ] In HOME, open any Pokémon's **summary** screen.
-- [ ] Run the **`CalibrateIVJudge`** program (Developer-mode panel). It presses Y to open
-      the Judge view, reads the six stat ratings, logs them, and dumps the six crop images.
-- [ ] Claude checks the log + dumped crops against a Pokémon whose IVs you know, and nudges
-      the crop coordinates / Y-press timing in `PokemonHome_IvJudgeReader.cpp` until all six
-      read correctly. Rebuild, re-run, repeat until stable.
+- [ ] In HOME, open any Pokémon's **summary** screen, then run `CalibrateIVJudge`. It:
+  - presses Y → reads the six **IV** ratings, dumps the six IV crops;
+  - reads **ability / nature / held item** off the summary, dumps those three crops;
+  - (if `READ_MOVES`) presses R → opens the **moves** screen, reads the 4 moves, dumps 4 crops.
+- [ ] Claude checks each dumped crop against a Pokémon whose details you know and nudges the
+      coordinates + button/timing until every field reads correctly, then rebuilds. The
+      **v2 items most likely to need tuning:** `HELD_ITEM_BOX` (placeholder), the four move
+      crops, and the **moves-screen open (R) button + the moves-screen detector crop** — a
+      wrong moves-screen crop can falsely "confirm" on the summary and read garbage moves, so
+      verify the moves dump really shows the moves list before trusting `READ_MOVES`. Rebuild,
+      re-run, repeat until stable. (If moves calibration is fussy, you can run with
+      `READ_MOVES` off — you still get everything except the Catcher/Pay-Day roles.)
 
 ---
 
