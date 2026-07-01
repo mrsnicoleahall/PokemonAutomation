@@ -269,6 +269,7 @@ const std::map<std::string, TestFunction> TEST_MAP = {
     {"PokemonLA_FlagTrackerPerformance", std::bind(image_int_detector_helper, test_pokemonLA_FlagTracker_performance, _1)},
     {"PokemonHome_BoxView", std::bind(image_words_detector_helper, test_pokemonHome_BoxView, _1)},
     {"PokemonHome_SummaryScreen", std::bind(image_words_detector_helper, test_pokemonHome_SummaryScreen, _1)},
+    {"PokemonHome_IvSummary", std::bind(image_void_detector_helper, test_pokemonHome_IvSummary, _1)},
     {"PokemonSV_MapDetector", std::bind(image_words_detector_helper, test_pokemonSV_MapDetector, _1)},
     {"PokemonSV_PicnicDetector", std::bind(image_bool_detector_helper, test_pokemonSV_PicnicDetector, _1)},
     {"PokemonSV_TeraCardFinder", std::bind(image_bool_detector_helper, test_pokemonSV_TeraCardFinder, _1)},

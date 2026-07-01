@@ -21,6 +21,8 @@ int test_pokemonHome_BoxView(const ImageViewRGB32& image, const std::vector<std:
 
 int test_pokemonHome_SummaryScreen(const ImageViewRGB32& image, const std::vector<std::string>& keywords);
 
+int test_pokemonHome_IvSummary(const ImageViewRGB32& image);
+
 }
 
 #endif
