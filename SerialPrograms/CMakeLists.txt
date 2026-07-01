@@ -230,11 +230,14 @@ set(FIRMWARE_DIR "${PACKAGES_DIR}/Firmware")
 set(SCRIPTS_DIR "${PACKAGES_DIR}/Scripts")
 set(RESOURCES_DIR "${PACKAGES_DIR}/Resources")
 
-# Clone Packages repo if not already present
+# Clone Packages repo if not already present.
+# Uses the PokePackages fork so a fresh clone of THIS fork includes the Master Box
+# Sorter resources (master_box_layout.json, IVCheckerOCR.json, PokemonMovesOCR.json,
+# Utility box range) that are not in upstream PokemonAutomation/Packages.
 if (NOT EXISTS "${PACKAGES_DIR}")
-    message(STATUS "Cloning Packages repo at configure time...")
+    message(STATUS "Cloning Packages repo (PokePackages fork) at configure time...")
     execute_process(
-        COMMAND git clone --branch master https://github.com/PokemonAutomation/Packages "${PACKAGES_DIR}"
+        COMMAND git clone --branch master https://github.com/mrsnicoleahall/PokePackages "${PACKAGES_DIR}"
         WORKING_DIRECTORY "${REPO_ROOT_DIR}"
     )
     add_custom_target(clone_packages DEPENDS "${PACKAGES_DIR}")
