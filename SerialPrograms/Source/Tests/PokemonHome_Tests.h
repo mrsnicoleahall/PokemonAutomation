@@ -23,6 +23,8 @@ int test_pokemonHome_SummaryScreen(const ImageViewRGB32& image, const std::vecto
 
 int test_pokemonHome_IvSummary(const ImageViewRGB32& image);
 
+int test_pokemonHome_MasterBoxRouter(const ImageViewRGB32& image);
+
 }
 
 #endif

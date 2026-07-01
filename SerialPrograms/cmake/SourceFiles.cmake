@@ -1623,6 +1623,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Programs/PokemonHome_BoxSorterLivingDex.h
     Source/PokemonHome/Programs/PokemonHome_GenerateNameOCR.cpp
     Source/PokemonHome/Programs/PokemonHome_GenerateNameOCR.h
+    Source/PokemonHome/Programs/PokemonHome_MasterBoxRouter.cpp
+    Source/PokemonHome/Programs/PokemonHome_MasterBoxRouter.h
     Source/PokemonHome/Programs/PokemonHome_PageSwap.cpp
     Source/PokemonHome/Programs/PokemonHome_PageSwap.h
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_ReadSummaryScreen.cpp
