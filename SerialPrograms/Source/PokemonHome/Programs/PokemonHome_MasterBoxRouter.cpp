@@ -71,12 +71,14 @@ BoxCategory route(
     }
 
     // Pre-compute flags used in step 3 and later.
-    const bool legend_or_myth =
-        (cfg.legendary  && cfg.legendary ->count(p.dex_number)) ||
-        (cfg.mythical   && cfg.mythical  ->count(p.dex_number));
+    const bool rare_species =
+        (cfg.legendary   && cfg.legendary  ->count(p.dex_number)) ||
+        (cfg.mythical    && cfg.mythical   ->count(p.dex_number)) ||
+        (cfg.ultra_beast && cfg.ultra_beast->count(p.dex_number)) ||
+        (cfg.paradox     && cfg.paradox    ->count(p.dex_number));
 
     // 3. Foreign OT with nothing special going on → trade fodder.
-    if (!is_owner_ot(p, cfg.owner_ot_names) && !p.shiny && !legend_or_myth && !is_event(p)){
+    if (!is_owner_ot(p, cfg.owner_ot_names) && !p.shiny && !rare_species && !is_event(p)){
         return BoxCategory::GoodTrades;
     }
 

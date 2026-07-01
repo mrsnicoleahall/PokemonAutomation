@@ -135,6 +135,18 @@ int test_pokemonHome_MasterBoxRouter(const ImageViewRGB32& /*image*/){
     // step 3 skipped (shiny), no IV boost → falls to LivingDex
     TEST_RESULT_EQUAL((int)route(shiny_ash, cfg, false, true), (int)BoxCategory::LivingDex);
 
+    // Fix 1 regression: foreign-OT non-shiny UltraBeast must NOT land in GoodTrades.
+    PA ub_foreign = base;
+    ub_foreign.ot_name = "ash";
+    ub_foreign.dex_number = 793;  // in the ub set
+    TEST_RESULT_EQUAL((int)route(ub_foreign, cfg, false, true), (int)BoxCategory::UltraBeast);
+
+    // Fix 1 regression: foreign-OT non-shiny Paradox must NOT land in GoodTrades.
+    PA para_foreign = base;
+    para_foreign.ot_name = "ash";
+    para_foreign.dex_number = 984;  // in the paradox set
+    TEST_RESULT_EQUAL((int)route(para_foreign, cfg, false, true), (int)BoxCategory::Paradox);
+
     return 0;
 }
 

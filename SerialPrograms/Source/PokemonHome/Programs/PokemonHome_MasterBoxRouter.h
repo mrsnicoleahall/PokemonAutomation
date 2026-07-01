@@ -57,7 +57,8 @@ struct RouterConfig{
     std::pair<uint8_t,uint8_t> breeding_range  = {3, 5}; // inclusive
     std::pair<uint8_t,uint8_t> breedject_range = {1, 2}; // inclusive
 
-    // Dex-number sets for special species.  Must not be null.
+    // Dex-number sets for special species.  Null pointers are treated as empty
+    // sets (the router null-checks each pointer before dereferencing it).
     const std::set<uint16_t>* legendary  = nullptr;
     const std::set<uint16_t>* mythical   = nullptr;
     const std::set<uint16_t>* ultra_beast = nullptr;
