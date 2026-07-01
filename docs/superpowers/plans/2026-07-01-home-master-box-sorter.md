@@ -116,57 +116,59 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: IV tier enum + phrase→tier mapping (pure, TDD)
+### Task 2: `IVSummary` over shared `IvJudgeValue` (pure, TDD)
+
+**REUSE, don't reinvent:** the codebase already has `Pokemon::IvJudgeValue`
+(`Pokemon/Pokemon_IvJudge.h`) and the `Pokemon::IvJudgeReader::Results` struct
+(`Pokemon/Inference/Pokemon_IvJudgeReader.h`). This task only adds the pure helper
+that condenses six `IvJudgeValue`s into the summary fields from Task 1.
 
 **Files:**
-- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVTier.h`
-- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVTier.cpp`
+- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvSummary.h`
+- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvSummary.cpp`
 - Modify: `SerialPrograms/Source/Tests/PokemonHome_Tests.h` / `.cpp`, `SerialPrograms/Source/Tests/TestMap.cpp`
-- Modify: `SerialPrograms/CMakeLists.txt` (add the two new source files — see Task note below)
+- Modify: `SerialPrograms/CMakeLists.txt` (add the two new source files)
 
 **Interfaces:**
+- Consumes: `Pokemon::IvJudgeValue`, `Pokemon::IvJudgeReader::Results`.
 - Produces:
-  - `enum class IVTier { NoGood, Decent, PrettyGood, VeryGood, Fantastic, Best, Unknown };`
-  - `IVTier iv_tier_from_phrase(const std::string& normalized_phrase);` — maps a `normalize_utf32`-normalized Judge phrase to a tier.
-  - `uint8_t iv_tier_midpoint(IVTier tier);` — 0/8/20/27/30/31 (Unknown→0).
   - `struct IVSummary { bool read; uint8_t best_count; uint16_t total_estimate; bool perfect; };`
-  - `IVSummary summarize_ivs(const std::array<IVTier,6>& tiers);`
+  - `uint8_t iv_value_midpoint(Pokemon::IvJudgeValue v);` — Best/HyperTrained=31, Fantastic=30, VeryGood=27, PrettyGood=20, Decent=8, NoGood/UnableToDetect=0.
+  - `IVSummary summarize_ivs(const Pokemon::IvJudgeReader::Results& r);` — counts Best OR HyperTrained toward `best_count`; if any stat is `UnableToDetect`, sets `read=false`.
 
-Phrase→tier table (normalized, lowercased, spaces stripped by `normalize_utf32`): `best`→Best, `fantastic`→Fantastic, `verygood`→VeryGood, `prettygood`→PrettyGood, `decent`→Decent, `nogood`→NoGood. Anything else→Unknown.
-
-- [ ] **Step 1: Write the header** `PokemonHome_IVTier.h` with the enum, the four declarations, and the `IVSummary` struct, wrapped in `namespace PokemonAutomation { namespace NintendoSwitch { namespace PokemonHome {`.
+- [ ] **Step 1: Write the header** `PokemonHome_IvSummary.h` with `IVSummary`, `iv_value_midpoint`, `summarize_ivs`, including `Pokemon/Inference/Pokemon_IvJudgeReader.h`, in `namespace PokemonAutomation { namespace NintendoSwitch { namespace PokemonHome {`.
 
 - [ ] **Step 2: Write the failing test.** In `Tests/PokemonHome_Tests.h` declare:
 
 ```cpp
-int test_pokemonHome_IVTierMapping(const ImageViewRGB32& image, const std::vector<std::string>& keywords);
+int test_pokemonHome_IvSummary(const ImageViewRGB32& image, const std::vector<std::string>& keywords);
 ```
 
 In `Tests/PokemonHome_Tests.cpp` add (image ignored — pure logic):
 
 ```cpp
-#include "PokemonHome/Inference/PokemonHome_IVTier.h"
+#include "PokemonHome/Inference/PokemonHome_IvSummary.h"
+#include "Pokemon/Inference/Pokemon_IvJudgeReader.h"
 // ...
-int test_pokemonHome_IVTierMapping(const ImageViewRGB32&, const std::vector<std::string>&){
+int test_pokemonHome_IvSummary(const ImageViewRGB32&, const std::vector<std::string>&){
     using namespace NintendoSwitch::PokemonHome;
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("best"), (int)IVTier::Best);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("fantastic"), (int)IVTier::Fantastic);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("verygood"), (int)IVTier::VeryGood);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("prettygood"), (int)IVTier::PrettyGood);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("decent"), (int)IVTier::Decent);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("nogood"), (int)IVTier::NoGood);
-    TEST_RESULT_EQUAL((int)iv_tier_from_phrase("garbage"), (int)IVTier::Unknown);
+    using Pokemon::IvJudgeValue;
+    using R = Pokemon::IvJudgeReader::Results;
 
-    std::array<IVTier,6> flawless{IVTier::Best,IVTier::Best,IVTier::Best,IVTier::Best,IVTier::Best,IVTier::Best};
+    R flawless{IvJudgeValue::Best,IvJudgeValue::Best,IvJudgeValue::Best,
+               IvJudgeValue::Best,IvJudgeValue::Best,IvJudgeValue::HyperTrained};
     IVSummary s = summarize_ivs(flawless);
-    TEST_RESULT_EQUAL(s.best_count, (uint8_t)6);
+    TEST_RESULT_EQUAL(s.best_count, (uint8_t)6);   // HyperTrained counts as 31
     TEST_RESULT_EQUAL(s.perfect, true);
+    TEST_RESULT_EQUAL(s.read, true);
     TEST_RESULT_EQUAL(s.total_estimate, (uint16_t)186);
 
-    std::array<IVTier,6> mixed{IVTier::Best,IVTier::Best,IVTier::VeryGood,IVTier::Decent,IVTier::NoGood,IVTier::Unknown};
+    R mixed{IvJudgeValue::Best,IvJudgeValue::Best,IvJudgeValue::VeryGood,
+            IvJudgeValue::Decent,IvJudgeValue::NoGood,IvJudgeValue::UnableToDetect};
     IVSummary m = summarize_ivs(mixed);
     TEST_RESULT_EQUAL(m.best_count, (uint8_t)2);
     TEST_RESULT_EQUAL(m.perfect, false);
+    TEST_RESULT_EQUAL(m.read, false);   // UnableToDetect -> not fully read
     return 0;
 }
 ```
@@ -174,46 +176,40 @@ int test_pokemonHome_IVTierMapping(const ImageViewRGB32&, const std::vector<std:
 Register in `Tests/TestMap.cpp` inside `TEST_MAP`:
 
 ```cpp
-    {"PokemonHome_IVTierMapping", std::bind(image_void_detector_helper, test_pokemonHome_IVTierMapping, _1)},
+    {"PokemonHome_IvSummary", std::bind(image_void_detector_helper, test_pokemonHome_IvSummary, _1)},
 ```
 
-Create a 1×1 dummy fixture so the folder is non-empty: `CommandLineTests/PokemonHome_IVTierMapping/dummy.png`.
+Create a 1×1 dummy fixture so the folder is non-empty: `CommandLineTests/PokemonHome_IvSummary/dummy.png`.
 
-- [ ] **Step 3: Run to verify it fails.** Build; run the app with `COMMAND_LINE_TESTS.RUN=true`, `TEST_LIST=["PokemonHome_IVTierMapping"]`.
-Expected: FAIL / link error (`iv_tier_from_phrase` undefined) — the `.cpp` isn't written yet.
+- [ ] **Step 3: Run to verify it fails.** Build; run the app with `COMMAND_LINE_TESTS.RUN=true`, `TEST_LIST=["PokemonHome_IvSummary"]`.
+Expected: FAIL / link error (`summarize_ivs` undefined).
 
-- [ ] **Step 4: Implement** `PokemonHome_IVTier.cpp`:
+- [ ] **Step 4: Implement** `PokemonHome_IvSummary.cpp`:
 
 ```cpp
-#include <array>
-#include "PokemonHome_IVTier.h"
+#include "Pokemon/Pokemon_IvJudge.h"
+#include "PokemonHome_IvSummary.h"
 namespace PokemonAutomation{ namespace NintendoSwitch{ namespace PokemonHome{
+using Pokemon::IvJudgeValue;
 
-IVTier iv_tier_from_phrase(const std::string& p){
-    if (p == "best")       return IVTier::Best;
-    if (p == "fantastic")  return IVTier::Fantastic;
-    if (p == "verygood")   return IVTier::VeryGood;
-    if (p == "prettygood") return IVTier::PrettyGood;
-    if (p == "decent")     return IVTier::Decent;
-    if (p == "nogood")     return IVTier::NoGood;
-    return IVTier::Unknown;
-}
-uint8_t iv_tier_midpoint(IVTier t){
-    switch (t){
-        case IVTier::Best:       return 31;
-        case IVTier::Fantastic:  return 30;
-        case IVTier::VeryGood:   return 27;
-        case IVTier::PrettyGood: return 20;
-        case IVTier::Decent:     return 8;
-        default:                 return 0;  // NoGood, Unknown
+uint8_t iv_value_midpoint(IvJudgeValue v){
+    switch (v){
+        case IvJudgeValue::Best:
+        case IvJudgeValue::HyperTrained: return 31;
+        case IvJudgeValue::Fantastic:    return 30;
+        case IvJudgeValue::VeryGood:     return 27;
+        case IvJudgeValue::PrettyGood:   return 20;
+        case IvJudgeValue::Decent:       return 8;
+        default:                         return 0;  // NoGood, UnableToDetect
     }
 }
-IVSummary summarize_ivs(const std::array<IVTier,6>& tiers){
+IVSummary summarize_ivs(const Pokemon::IvJudgeReader::Results& r){
+    const IvJudgeValue stats[6] = {r.hp, r.attack, r.defense, r.spatk, r.spdef, r.speed};
     IVSummary s{true, 0, 0, false};
-    for (IVTier t : tiers){
-        if (t == IVTier::Unknown){ s.read = false; }
-        if (t == IVTier::Best){ s.best_count++; }
-        s.total_estimate += iv_tier_midpoint(t);
+    for (IvJudgeValue v : stats){
+        if (v == IvJudgeValue::UnableToDetect){ s.read = false; }
+        if (v == IvJudgeValue::Best || v == IvJudgeValue::HyperTrained){ s.best_count++; }
+        s.total_estimate += iv_value_midpoint(v);
     }
     s.perfect = (s.best_count == 6);
     return s;
@@ -224,13 +220,13 @@ IVSummary summarize_ivs(const std::array<IVTier,6>& tiers){
 Add both source files to `SerialPrograms/CMakeLists.txt` (search for `PokemonHome_ButtonDetector.cpp` and add the new paths beside it in the same source list).
 
 - [ ] **Step 5: Run to verify it passes.** Rebuild + rerun the test.
-Expected: `PokemonHome_IVTierMapping` PASS.
+Expected: `PokemonHome_IvSummary` PASS.
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVTier.* SerialPrograms/Source/Tests/* SerialPrograms/CMakeLists.txt CommandLineTests/PokemonHome_IVTierMapping/
-git commit -m "feat(home): IV tier enum + phrase mapping with tests
+git add SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvSummary.* SerialPrograms/Source/Tests/* SerialPrograms/CMakeLists.txt CommandLineTests/PokemonHome_IvSummary/
+git commit -m "feat(home): IVSummary over shared IvJudgeValue with tests
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -419,57 +415,55 @@ Register + add dummy fixture folder.
 
 ## Phase 2 — Hardware inference (calibrate on rig; not unit-testable here)
 
-### Task 5: `IVJudgeReader` inference
+### Task 5: `PokemonHome_IvJudgeReader` — thin scope over the shared engine
+
+**REUSE:** model this file **exactly** on `PokemonSV/Inference/Boxes/PokemonSV_IvJudgeReader.{h,cpp}`.
+The shared `Pokemon::IvJudgeReader` does the multi-language dictionary OCR; this task
+only supplies HOME's six crop boxes + an OCR dictionary JSON.
 
 **Files:**
-- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVJudgeReader.h`
-- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVJudgeReader.cpp`
+- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.h`
+- Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.cpp`
+- Create: `Packages/SerialPrograms/Resources/PokemonHome/IVCheckerOCR.json` (copy of `PokemonSV/IVCheckerOCR.json`)
 - Modify: `CMakeLists.txt`
 
 **Interfaces:**
-- Consumes: `IVTier`/`IVSummary`/`summarize_ivs` (Task 2), `extract_box_reference`, `OCR::ocr_read`, `OCR::normalize_utf32`, `image_stddev` (all used in `PokemonHome_BoxNavigation.cpp`).
+- Consumes: `Pokemon::IvJudgeReader`, `Pokemon::IvJudgeValue`, `OverlayBoxScope`, `extract_box_reference`, `OCR::WHITE_TEXT_FILTERS` (see `PokemonSV_IvJudgeReader.cpp`).
 - Produces:
-  - `IVSummary read_iv_judge_screen(VideoStream& stream, const VideoSnapshot& screen);` — OCR the six stat phrases from a Judge-screen snapshot and summarize.
-  - `void make_iv_judge_overlays(VideoOverlaySet& set);` — draw the six crop boxes for calibration.
-  - `extern const std::array<ImageFloatBox,6> IV_JUDGE_STAT_BOXES;` — the six crop rectangles (HP, Atk, Def, SpA, SpD, Spe). **Placeholder coordinates; calibrate in Task 6.**
+  - `const Pokemon::IvJudgeReader& IV_READER();` — bound to `"PokemonHome/IVCheckerOCR.json"`.
+  - `class IvJudgeReaderScope` with ctor `(VideoOverlay&, Language)`, `Results read(Logger&, const ImageViewRGB32&)`, and `std::vector<ImageViewRGB32> dump_images(const ImageViewRGB32&)` — identical shape to SV's.
 
-- [ ] **Step 1: Write the header** with the three declarations and a doc comment stating coordinates are calibrated via `CalibrateIVJudge`.
+- [ ] **Step 1: Copy `PokemonSV_IvJudgeReader.{h,cpp}`** to the HOME Inference folder; rename namespace `PokemonSV`→`PokemonHome`, the include guard, and the JSON path in `IV_READER()` to `"PokemonHome/IVCheckerOCR.json"`.
 
-- [ ] **Step 2: Implement the reader.** Model the OCR loop on `read_summary_screen`'s OT-name block (`PokemonHome_BoxNavigation.cpp:309-329`):
+- [ ] **Step 2: Copy the OCR dictionary** `Packages/SerialPrograms/Resources/PokemonSV/IVCheckerOCR.json` → `.../PokemonHome/IVCheckerOCR.json` (same rating tokens across all languages; identical for HOME). Commit note: this resource is submitted to the `Packages` repo separately.
+
+- [ ] **Step 3: Seed the six crop boxes from SV** (HOME's hexagonal stat chart is nearly identical; fine-tuned in Task 6):
 
 ```cpp
-const std::array<ImageFloatBox,6> IV_JUDGE_STAT_BOXES = {
-    // TODO calibrate on hardware (Task 6). Rough vertical stack on the right column.
-    ImageFloatBox(0.60, 0.28, 0.20, 0.06), ImageFloatBox(0.60, 0.36, 0.20, 0.06),
-    ImageFloatBox(0.60, 0.44, 0.20, 0.06), ImageFloatBox(0.60, 0.52, 0.20, 0.06),
-    ImageFloatBox(0.60, 0.60, 0.20, 0.06), ImageFloatBox(0.60, 0.68, 0.20, 0.06),
-};
-IVSummary read_iv_judge_screen(VideoStream& stream, const VideoSnapshot& screen){
-    std::array<IVTier,6> tiers;
-    for (size_t i = 0; i < 6; i++){
-        std::string raw = OCR::ocr_read(Language::English,
-            extract_box_reference(screen, IV_JUDGE_STAT_BOXES[i]), OCR::PageSegMode::SINGLE_LINE);
-        std::string norm = utf32_to_str(OCR::normalize_utf32(raw));
-        tiers[i] = iv_tier_from_phrase(norm);
-        stream.log("IV stat " + std::to_string(i) + " raw='" + raw + "' -> tier " + std::to_string((int)tiers[i]));
-    }
-    return summarize_ivs(tiers);
-}
+IvJudgeReaderScope::IvJudgeReaderScope(VideoOverlay& overlay, Language language)
+    : m_language(language)
+    , m_box_hp      (overlay, {0.825, 0.192, 0.110, 0.052})
+    , m_box_attack  (overlay, {0.886, 0.302, 0.110, 0.052})
+    , m_box_defense (overlay, {0.886, 0.406, 0.110, 0.052})
+    , m_box_spatk   (overlay, {0.660, 0.302, 0.110, 0.052})
+    , m_box_spdef   (overlay, {0.660, 0.406, 0.110, 0.052})
+    , m_box_speed   (overlay, {0.825, 0.470, 0.110, 0.052})
+{}
 ```
-Implement `make_iv_judge_overlays` by adding each box in `IV_JUDGE_STAT_BOXES` to the set in `COLOR_RED`. Add sources to CMake.
+(The `read(...)` bodies are copied verbatim from SV — no logic change.) Add sources to CMake.
 
-- [ ] **Step 3: Build to confirm it compiles.**
+- [ ] **Step 4: Build to confirm it compiles.**
 
 ```bash
 cd build_mac && cmake --build . -j 10 --target SerialPrograms 2>&1 | tail -5
 ```
-Expected: builds clean. (No runtime assertion — coordinates are calibrated next.)
+Expected: builds clean. (Coordinates fine-tuned on hardware in Task 6.)
 
-- [ ] **Step 4: Commit.**
+- [ ] **Step 5: Commit.**
 
 ```bash
-git add SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVJudgeReader.* SerialPrograms/CMakeLists.txt
-git commit -m "feat(home): IVJudgeReader (placeholder crops, calibrated in Task 6)
+git add SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.* SerialPrograms/CMakeLists.txt
+git commit -m "feat(home): IvJudgeReader scope reusing shared engine (SV-seeded crops)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -484,23 +478,33 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `SerialPrograms/Source/PokemonHome/PokemonHome_Panels.cpp` (register), `CMakeLists.txt`
 
 **Interfaces:**
-- Consumes: `SingleSwitchProgramDescriptor/Instance` pattern (see `TestPrograms/PokemonHome_ReadSummaryScreen.*`), `read_iv_judge_screen`, `make_iv_judge_overlays`.
-- Produces: a runnable panel program `PokemonHome:CalibrateIVJudge`.
+- Consumes: `SingleSwitchProgramDescriptor/Instance` pattern (see `TestPrograms/PokemonHome_ReadSummaryScreen.*`), `PokemonHome::IvJudgeReaderScope` (Task 5), `summarize_ivs` (Task 2).
+- Produces: a runnable panel program `PokemonHome:CalibrateIVJudge` that ALSO verifies the summary→Judge button press.
 
-- [ ] **Step 1: Copy `ReadSummaryScreen.{h,cpp}`** to `CalibrateIVJudge.{h,cpp}`; rename the descriptor/class and its ID string to `PokemonHome:CalibrateIVJudge` / "Calibrate IV Judge".
+- [ ] **Step 1: Copy `ReadSummaryScreen.{h,cpp}`** to `CalibrateIVJudge.{h,cpp}`; rename the descriptor/class and its ID string to `PokemonHome:CalibrateIVJudge` / "Calibrate IV Judge". Add a `Language` option (default English) for the reader.
 
-- [ ] **Step 2: Implement `program()`:** assume the user has a Pokémon's Judge screen open. Draw overlays, snapshot, read, and log — plus dump the image for offline crop-tuning:
+- [ ] **Step 2: Implement `program()`:** assume the user has a Pokémon's **summary** screen open. Press `Y` to open the Judge/stat view, then draw the scope's overlay boxes, snapshot, read, and log — plus dump the crops for offline tuning:
 
 ```cpp
 void CalibrateIVJudge::program(SingleSwitchProgramEnvironment& env, ProControllerContext& context){
-    VideoOverlaySet overlays(env.console);
-    make_iv_judge_overlays(overlays);
+    // Verify the summary -> Judge navigation (press Y).
+    pbf_press_button(context, BUTTON_Y, 80ms, 500ms);
     context.wait_for_all_requests();
+
+    IvJudgeReaderScope scope(env.console.overlay(), LANGUAGE);
     VideoSnapshot screen = env.console.video().snapshot();
-    IVSummary s = read_iv_judge_screen(env.console, screen);
+    Pokemon::IvJudgeReader::Results r = scope.read(env.console.logger(), screen);
+    env.log("IV Judge results: " + r.to_string());
+
+    IVSummary s = summarize_ivs(r);
     env.log("IV summary: read=" + std::to_string(s.read) + " best_count=" + std::to_string(s.best_count)
             + " total_est=" + std::to_string(s.total_estimate) + " perfect=" + std::to_string(s.perfect));
-    dump_image(env.console, ProgramInfo(), "CalibrateIVJudge", screen);
+
+    // Dump each stat crop for offline coordinate tuning.
+    int i = 0;
+    for (const ImageViewRGB32& img : scope.dump_images(screen)){
+        dump_image(env.console, ProgramInfo(), "CalibrateIVJudge_stat" + std::to_string(i++), img);
+    }
 }
 ```
 
@@ -508,12 +512,12 @@ void CalibrateIVJudge::program(SingleSwitchProgramEnvironment& env, ProControlle
 
 - [ ] **Step 4: Build.** Expected: `[100%] Built target SerialPrograms`.
 
-- [ ] **Step 5 (Nicole, on hardware): Calibrate.** Open a Pokémon's Judge screen in HOME, run `CalibrateIVJudge`, read the log + dumped image. Adjust `IV_JUDGE_STAT_BOXES` in `PokemonHome_IVJudgeReader.cpp` until all six phrases read correctly for known Pokémon. Re-run until stable.
+- [ ] **Step 5 (Nicole, on hardware): Calibrate.** Open a Pokémon's **summary** screen in HOME, run `CalibrateIVJudge`. Confirm the `Y` press lands on the Judge/stat view and all six ratings read correctly (check the log + dumped stat crops) for Pokémon whose IVs you know. Adjust the six crop boxes in `PokemonHome_IvJudgeReader.cpp` (and the `Y`-press timing here) until stable.
 
 - [ ] **Step 6: Commit** the calibrated coordinates.
 
 ```bash
-git add SerialPrograms/Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.* SerialPrograms/Source/PokemonHome/PokemonHome_Panels.cpp SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IVJudgeReader.cpp SerialPrograms/CMakeLists.txt
+git add SerialPrograms/Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.* SerialPrograms/Source/PokemonHome/PokemonHome_Panels.cpp SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.cpp SerialPrograms/CMakeLists.txt
 git commit -m "feat(home): CalibrateIVJudge program + calibrated Judge crops
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -534,13 +538,13 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: `BoxSorterLivingDex`'s helpers (`populate_box_data`, `find_occupied_slots_in_box`, `read_summary_screen`, `move_cursor_to`, `go_to_first_slot`, `exit_menus`, `save_boxes_data_to_json` — all in `PokemonHome_BoxNavigation.*` / `Pokemon_CollectedPokemonInfo.*`), plus Tasks 4–5.
 - Produces:
   - The program class + descriptor (`PokemonHome:BoxSorterMaster`).
-  - Extended `read_summary_screen_with_ivs(...)` — wraps `read_summary_screen`, then navigates to Judge (button sequence, calibrated) and calls `read_iv_judge_screen`, filling the IV fields. If `READ_IVS` option is off, skip.
+  - Extended `read_summary_screen_with_ivs(...)` — wraps `read_summary_screen`, then presses `Y` to open the Judge view, constructs an `IvJudgeReaderScope`, calls `scope.read(...)`, passes the `Results` through `summarize_ivs`, and fills the IV fields (`iv_read/iv_best_count/iv_total_estimate/iv_perfect`), then presses `B` to return. If `READ_IVS` option is off, skip.
   - `void write_catalogue_incremental(const std::vector<std::optional<CollectedPokemonInfo>>&, size_t boxes_done, const std::string& path);`
   - `bool load_catalogue_resume(std::vector<std::optional<CollectedPokemonInfo>>&, size_t& boxes_done, const std::string& path);`
 
 - [ ] **Step 1: Scaffold** the descriptor + instance by copying the structure of `BoxSorterLivingDex.{h,cpp}` (constructor, options, `make_stats`). Options to include: `SCAN_BOX_START`, `SCAN_BOX_COUNT`, per-category box-range overrides (default from layout), `OWNER_OT_NAMES` (a `StringListOption` or comma field → set), `READ_IVS` (bool), `COMPETITIVE_MIN31` (default 6), `BREEDING_MIN/MAX` (3/5), `BREEDJECT_MIN/MAX` (1/2), `VIDEO_DELAY`, `GAME_DELAY`, `OUTPUT_FILE`, `DRY_RUN`, `FRESH_START` (bool), `NOTIFICATIONS`.
 
-- [ ] **Step 2: Implement `read_summary_screen_with_ivs`.** Call `read_summary_screen` first. Then, if `READ_IVS`: press the calibrated button(s) to open the Judge view (calibrate the exact sequence in Task 6 alongside the crops — extend `CalibrateIVJudge` to also perform the open-Judge press so the sequence is verified), `context.wait_for_all_requests()`, wait for a Judge-screen watcher/frozen-image, snapshot, `read_iv_judge_screen`, then press B to return. Assign `iv_*` fields onto the info struct.
+- [ ] **Step 2: Implement `read_summary_screen_with_ivs`.** Call `read_summary_screen` first. Then, if `READ_IVS`: `pbf_press_button(context, BUTTON_Y, ...)` to open the Judge view (timing verified by `CalibrateIVJudge` in Task 6), `context.wait_for_all_requests()`, wait for a Judge/stat-screen frozen-image, snapshot, build an `IvJudgeReaderScope` and call `scope.read(...)`, run the `Results` through `summarize_ivs`, then press `B` to return to the summary. Assign `iv_read/iv_best_count/iv_total_estimate/iv_perfect` onto the info struct.
 
 - [ ] **Step 3: Implement the Catalogue pass with resume.** Reuse `populate_box_data` structure but swap the per-Pokémon read to `read_summary_screen_with_ivs`, and after each box call `write_catalogue_incremental(..., box_idx+1, path)`. On program start, if `!FRESH_START` and the catalogue file exists, call `load_catalogue_resume` and re-scan each already-recorded box's grid fingerprint (`find_occupied_slots_in_box` occupancy) — if occupancy matches the saved count, skip re-reading; else re-read. Begin cataloguing at `boxes_done`.
 
@@ -635,6 +639,6 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Self-Review notes (author check)
 
-- **Spec coverage:** §2 readable set → Tasks 1,5; §3 two-pass/resume → Tasks 7,8; §4 routing → Task 3; §4.1 contention → Task 8 `wins_slot`; §4.3 OT list → Task 3 config + Task 7 option; §5.1 IVJudgeReader → Task 5; §5.2 struct ext → Task 1; §5.3 program → Tasks 7,8; §5.4 calibration → Task 6; §5.5 layout resource → Task 4; §6 space mgmt → Task 8; §7 error handling → Tasks 7,8; §8 testing → Tasks 2,3,4,8 + Task 6/7 hardware; §9 build → Task 0.
-- **Naming consistency:** `route`, `wins_slot`, `summarize_ivs`, `iv_tier_from_phrase`, `read_iv_judge_screen`, `IV_JUDGE_STAT_BOXES`, `build_master_plan`, `MasterBoxLayout`, `RouterConfig`, `BoxCategory` used identically across tasks.
-- **Known hardware placeholders (intentional, resolved on rig):** Judge-screen open button sequence + `IV_JUDGE_STAT_BOXES` coordinates — both calibrated in Task 6; the summary→Judge navigation in Task 7 depends on that same calibration.
+- **Spec coverage:** §2 readable set → Tasks 1,5; §3 two-pass/resume → Tasks 7,8; §4 routing → Task 3; §4.1 contention → Task 8 `wins_slot`; §4.3 OT list → Task 3 config + Task 7 option; §5.1 IvJudgeReader (shared-engine reuse) → Tasks 2,5; §5.2 struct ext → Task 1; §5.3 program → Tasks 7,8; §5.4 calibration → Task 6; §5.5 layout resource → Task 4; §6 space mgmt → Task 8; §7 error handling → Tasks 7,8; §8 testing → Tasks 2,3,4,8 + Task 6/7 hardware; §9 build → Task 0.
+- **Naming consistency:** `route`, `wins_slot`, `summarize_ivs`, `iv_value_midpoint`, `IVSummary`, `IvJudgeReaderScope`, `IV_READER`, `build_master_plan`, `MasterBoxLayout`, `RouterConfig`, `BoxCategory` used identically across tasks. IV data types reuse `Pokemon::IvJudgeValue` / `Pokemon::IvJudgeReader::Results` (not a bespoke tier enum).
+- **Known hardware placeholders (intentional, resolved on rig):** the summary→Judge `Y`-press timing + the six crop-box coordinates in `PokemonHome_IvJudgeReader.cpp` (SV-seeded) — both calibrated in Task 6; the summary→Judge navigation in Task 7 depends on that same calibration.

@@ -34,12 +34,19 @@ National Dex #, Shiny, Gender, Ball (incl. Cherish), OT name, OT ID,
 primary/secondary type, Gigantamax, Alpha, Tera type, Origin mark
 (GO, Galar, BDSP, LA, SV, Kalos, LGPE, VC/GameBoy, LZA).
 
-**Readable from the Judge / IV screen** (NEW — must be built, see §5.1):
-Per-stat IV quality phrase → mapped to a tier. From the six tiers we derive:
-- `iv_best_count` — number of stats judged **"Best"** (= 31).
-- `iv_total_estimate` — sum of tier midpoints (Best=31, Fantastic=30, Very Good=27,
-  Pretty Good=20, Decent=8, No Good=0). Used only for tie-breaks, never as an exact IV.
+**Readable from the Judge / IV screen** (see §5.1). Navigation: from the summary
+screen, **press `Y`** to bring up the stat chart with the Judge ratings (requires a
+HOME **Premium Plan** — the Judge function is unavailable otherwise). The ratings are
+read by **reusing the existing shared engine** `Pokemon::IvJudgeReader` +
+`Pokemon::IvJudgeValue` (already used by SV/SwSh/BDSP/LZA) — a multi-language,
+dictionary-backed OCR that returns a per-stat `IvJudgeValue` ∈ {UnableToDetect,
+NoGood, Decent, PrettyGood, VeryGood, Fantastic, Best, **HyperTrained**}.
+From the six values we derive:
+- `iv_best_count` — number of stats judged **Best** OR **HyperTrained** (both = 31).
+- `iv_total_estimate` — sum of tier midpoints (Best/HyperTrained=31, Fantastic=30,
+  VeryGood=27, PrettyGood=20, Decent=8, NoGood/UnableToDetect=0). Tie-breaks only.
 - `iv_perfect` — `iv_best_count == 6`.
+- If any stat is `UnableToDetect`, `iv_read = false` (placed by non-IV rules only).
 
 **NOT readable — stays Manual Sort:** exact Nature, EVs, ribbons, marks, favorite
 flag, egg moves, and any cosmetic form that shares its base form's type
@@ -136,13 +143,18 @@ normalization.
 
 ## 5. New components
 
-### 5.1 `PokemonHome_IVJudgeReader` (Inference/) — NEW, highest-risk
-- Navigates from the summary screen to the Judge/IV view (button sequence TBD-on-
-  hardware; parameterized as a delay/`GAME_DELAY`-driven macro).
-- Six `ImageFloatBox` crops (one per stat). Reads each phrase with `OCR::ocr_read`
-  (English), normalizes to a tier enum, returns `{best_count, total_estimate, perfect}`.
-- **Cannot be runtime-tested here.** Crop coordinates are placeholders to be calibrated
-  on real hardware via the calibration program (§5.4).
+### 5.1 `PokemonHome_IvJudgeReader` (Inference/) — reuses shared engine
+- **Reuses** `Pokemon::IvJudgeReader` (dictionary OCR) — do NOT hand-roll OCR. Add a
+  thin `IvJudgeReaderScope` modeled exactly on `PokemonSV_IvJudgeReader.cpp`: six crop
+  boxes + `IV_READER()` pointing at an OCR dictionary JSON (copy SV's `IVCheckerOCR.json`).
+- Navigation: from the summary screen, press `Y` (via `pbf_press_button` + a
+  Judge/stat-screen watcher, then B to return). Exact press timing calibrated on rig.
+- Crop coordinates **seed from SV's** (stat chart layout is nearly identical):
+  HP `{0.825,0.192,...}`, Atk `{0.886,0.302,...}`, Def `{0.886,0.406,...}`,
+  SpA `{0.660,0.302,...}`, SpD `{0.660,0.406,...}`, Spe `{0.825,0.470,...}` —
+  then fine-tuned via the calibration program (§5.4). Lower risk than a from-scratch reader.
+- A pure helper `IVSummary summarize_ivs(const IvJudgeReader::Results&)` converts the
+  six `IvJudgeValue`s into `{iv_read, iv_best_count, iv_total_estimate, iv_perfect}`.
 
 ### 5.2 `CollectedPokemonInfo` extension
 Add optional IV fields: `uint8_t iv_best_count`, `uint16_t iv_total_estimate`,
