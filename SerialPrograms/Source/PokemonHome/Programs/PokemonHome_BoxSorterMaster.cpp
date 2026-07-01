@@ -383,7 +383,8 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
     Language iv_language,
     const std::string& output_path,
     size_t already_done_boxes,
-    const std::vector<size_t>& saved_fingerprints  // Part C.2: occupancy mismatch check
+    const std::vector<size_t>& saved_fingerprints,  // Part C.2: occupancy mismatch check
+    bool skip_occupancy_check       // true when execute pass already started (moves_done>0)
 ){
     BoxSorterMaster_Descriptor::Stats& stats =
         env.current_stats<BoxSorterMaster_Descriptor::Stats>();
@@ -447,7 +448,12 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
             // This box was loaded from the JSON resume.
             // Part C.2: Compare live occupancy against the saved fingerprint.
             // If they differ, the box changed since we catalogued it — abort.
-            if (box_rel < saved_fingerprints.size()){
+            //
+            // Skip this check when the execute pass has already begun (moves_done > 0):
+            // moves legitimately shift Pokémon between boxes, so occupancy will differ
+            // from what was recorded during the catalogue phase.  We only enforce the
+            // check during a pure catalogue-phase resume (no execute moves yet done).
+            if (!skip_occupancy_check && box_rel < saved_fingerprints.size()){
                 const size_t saved_occ = saved_fingerprints[box_rel];
                 if (occupancy != saved_occ){
                     throw UserSetupError(
@@ -673,6 +679,30 @@ void BoxSorterMaster::program(
         }
     }
 
+    // Detect whether the execute pass has already started (moves_done > 0).
+    // If so, we must skip the occupancy-mismatch check in catalogue_boxes:
+    // moves legitimately change box occupancy, so the saved fingerprints will
+    // no longer match live state — but that is expected and not an error.
+    bool execute_already_started = false;
+    if (!fresh_start){
+        JsonValue prog_val;
+        try{ prog_val = load_json_file(progress_path); }
+        catch (...){ prog_val = JsonValue(); }
+        if (prog_val.is_object()){
+            const JsonObject* prog = prog_val.to_object();
+            if (prog){
+                const JsonValue* done_val = prog->get_value("moves_done");
+                if (done_val && done_val->is_integer() && done_val->to_integer_default(0) > 0){
+                    execute_already_started = true;
+                    env.log(
+                        "BoxSorterMaster: Execute pass already started — "
+                        "skipping occupancy-mismatch check on catalogue resume."
+                    );
+                }
+            }
+        }
+    }
+
     exit_menus(env, context, VIDEO_DELAY.get());
 
     BoxCursor nav_cursor(scan_start, 0, 0);
@@ -689,7 +719,8 @@ void BoxSorterMaster::program(
         iv_lang,
         output_path,
         already_done_boxes,
-        saved_fingerprints   // Part C.2: for occupancy mismatch check on resume
+        saved_fingerprints,   // Part C.2: for occupancy mismatch check on resume
+        execute_already_started  // Fix 1: skip check if execute already started
     );
 
     env.log("BoxSorterMaster: Catalogue pass complete. JSON written to: " + output_path);
@@ -714,6 +745,20 @@ void BoxSorterMaster::program(
                 std::string("BoxSorterMaster: Failed to load master_box_layout.json: ") + ex.what()
             );
         }
+    }
+
+    // Fix 2: Validate that SCAN_BOX_START matches the layout's living_dex_start_box.
+    // The planner derives its scan_start from layout.living_dex_start_box - 1.
+    // If SCAN_BOX_START differs, catalogue indices will map to the wrong absolute
+    // boxes, silently producing an incorrect (and potentially destructive) plan.
+    if (static_cast<uint16_t>(SCAN_BOX_START) != layout.living_dex_start_box){
+        throw UserSetupError(
+            env.logger(),
+            "BoxSorterMaster: Scan must start at the living-dex start box (" +
+            std::to_string(layout.living_dex_start_box) +
+            "); adjust SCAN_BOX_START. Current value: " +
+            std::to_string(static_cast<uint16_t>(SCAN_BOX_START)) + "."
+        );
     }
 
     // Build RouterConfig from live program options.
@@ -750,17 +795,8 @@ void BoxSorterMaster::program(
         env.log("BoxSorterMaster Plan Warning: " + w, COLOR_YELLOW);
     }
 
-    // Check for blocking warnings before touching hardware.
-    for (const auto& w : master_plan.warnings){
-        if (w.rfind("[BLOCKING]", 0) == 0){
-            throw UserSetupError(
-                env.logger(),
-                "BoxSorterMaster: Blocking plan warning — cannot execute safely.\n" + w
-            );
-        }
-    }
-
-    // Always write the plan JSON (even in DRY_RUN).
+    // Always write the plan JSON (even in DRY_RUN) BEFORE checking for blocking
+    // warnings, so the user can inspect the plan that caused any block.
     {
         JsonObject plan_root;
         JsonArray moves_arr;
@@ -791,6 +827,16 @@ void BoxSorterMaster::program(
         plan_root["warnings"] = std::move(warn_arr);
         plan_root.dump(plan_path);
         env.log("BoxSorterMaster: Plan written to: " + plan_path);
+    }
+
+    // Check for blocking warnings before touching hardware.
+    for (const auto& w : master_plan.warnings){
+        if (w.rfind("[BLOCKING]", 0) == 0){
+            throw UserSetupError(
+                env.logger(),
+                "BoxSorterMaster: Blocking plan warning — cannot execute safely.\n" + w
+            );
+        }
     }
 
     if (dry_run){

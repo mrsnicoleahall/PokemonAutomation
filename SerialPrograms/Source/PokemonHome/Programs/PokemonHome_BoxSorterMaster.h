@@ -71,7 +71,8 @@ private:
         Language iv_language,
         const std::string& output_path,
         size_t already_done_boxes,         // resume offset: skip this many boxes at front
-        const std::vector<size_t>& saved_fingerprints  // Part C.2: occupancy mismatch check
+        const std::vector<size_t>& saved_fingerprints,  // Part C.2: occupancy mismatch check
+        bool skip_occupancy_check          // true when execute pass already started (moves_done>0)
     );
 
     // Scan box_idx (0-indexed relative to SCAN_BOX_START) and count occupied slots.

@@ -387,8 +387,11 @@ MasterPlan build_master_plan(
         // If it still routes to LivingDex (e.g. shiny that lost to another shiny),
         // it goes to DuplicateShiny (shiny slot taken) or ManualOther.
         if (cat == BoxCategory::LivingDex){
-            // Shouldn't normally happen after re-routing with slot_taken_by_shiny=true
-            // unless the Pokémon is a non-shiny loser. Force to ManualOther.
+            // This WILL happen for owners of alt-forms sharing a dex# with a base
+            // form, because base_form_signature_matches is always true in v1
+            // (form-signature detection is a documented v1 limitation — the catalogue
+            // only stores dex_number, not the full form signature).  Such entries
+            // end up here and are redirected to ManualOther for manual review.
             cat = BoxCategory::ManualOther;
         }
 

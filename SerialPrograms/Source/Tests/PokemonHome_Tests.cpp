@@ -291,11 +291,10 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
     // Non-shiny loser (ci=0) needs to move to GoodTrades (box 47-1=46, slot 0, flat=46*30=1380).
     // catalogue[0] is currently at flat=0.
     //
-    // Move plan to move shiny (at flat=1) to flat=0 while non-shiny is at flat=0:
-    //   Swap flat=1 with flat=0 (Y-pick flat=1, Y-place flat=0 → they swap).
-    //   Now shiny is at flat=0 (correct target), non-shiny is at flat=1.
-    //   Then move non-shiny from flat=1 to GoodTrades flat=1380.
-    //   GoodTrades flat=1380 is empty → direct move.
+    // Move plan to place shiny (at flat=1) into its dex slot (flat=0):
+    //   Move 1: evict the non-shiny from flat=0 (the dex target) directly to its
+    //           GoodTrades target (flat=1380), which is empty — direct move.
+    //   Move 2: move the shiny from flat=1 to the now-empty flat=0.
     // Total: 2 moves expected.
     // ---------------------------------------------------------------------------
 
