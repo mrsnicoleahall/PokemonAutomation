@@ -35,7 +35,13 @@ bool operator==(const CollectedPokemonInfo& lhs, const CollectedPokemonInfo& rhs
            lhs.iv_read == rhs.iv_read &&
            lhs.iv_best_count == rhs.iv_best_count &&
            lhs.iv_total_estimate == rhs.iv_total_estimate &&
-           lhs.iv_perfect == rhs.iv_perfect;
+           lhs.iv_perfect == rhs.iv_perfect &&
+           lhs.ability_slug == rhs.ability_slug &&
+           lhs.nature == rhs.nature &&
+           lhs.held_item_slug == rhs.held_item_slug &&
+           lhs.moves == rhs.moves &&
+           lhs.extras_read == rhs.extras_read &&
+           lhs.moves_read == rhs.moves_read;
 }
 
 
@@ -129,6 +135,17 @@ std::ostream& operator<<(std::ostream& os, const std::optional<CollectedPokemonI
         os << "iv31:" << (int)pokemon->iv_best_count << " ";
         os << "ivperfect:" << (pokemon->iv_perfect ? "true" : "false") << " ";
         os << "iv_total:" << pokemon->iv_total_estimate << " ";
+        os << "extras_read:" << (pokemon->extras_read ? "true" : "false") << " ";
+        os << "ability:" << pokemon->ability_slug << " ";
+        os << "nature:" << pokemon->nature << " ";
+        os << "held_item:" << pokemon->held_item_slug << " ";
+        os << "moves_read:" << (pokemon->moves_read ? "true" : "false") << " ";
+        os << "moves:";
+        for (size_t i = 0; i < pokemon->moves.size(); ++i){
+            if (i > 0){ os << ","; }
+            os << pokemon->moves[i];
+        }
+        os << " ";
         os << ")";
     }else{
         os << "(empty)";
@@ -188,6 +205,18 @@ void save_boxes_data_to_json(const std::vector<std::optional<CollectedPokemonInf
             pokemon["iv_best_count"] = current_pokemon->iv_best_count;
             pokemon["iv_total_estimate"] = current_pokemon->iv_total_estimate;
             pokemon["iv_perfect"] = current_pokemon->iv_perfect;
+            pokemon["extras_read"] = current_pokemon->extras_read;
+            pokemon["ability_slug"] = current_pokemon->ability_slug;
+            pokemon["nature"] = current_pokemon->nature;
+            pokemon["held_item_slug"] = current_pokemon->held_item_slug;
+            {
+                JsonArray moves_array;
+                for (const std::string& move : current_pokemon->moves){
+                    moves_array.push_back(move);
+                }
+                pokemon["moves"] = std::move(moves_array);
+            }
+            pokemon["moves_read"] = current_pokemon->moves_read;
         }
         pokemon_data.push_back(std::move(pokemon));
     }

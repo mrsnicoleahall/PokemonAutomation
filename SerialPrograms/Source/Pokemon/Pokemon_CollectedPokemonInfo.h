@@ -44,6 +44,14 @@ struct CollectedPokemonInfo{
     uint8_t iv_best_count = 0;       // number of stats judged "Best" (31)
     uint16_t iv_total_estimate = 0;  // sum of per-stat tier midpoints (0..186)
     bool iv_perfect = false;         // iv_best_count == 6
+
+    // v2: attributes read from the summary (ability/nature/item) and moves screen.
+    std::string ability_slug = "";
+    std::string nature = "";           // normalized nature slug
+    std::string held_item_slug = "";   // "" = none/unread
+    std::vector<std::string> moves;    // up to 4 normalized move slugs
+    bool extras_read = false;          // ability/nature/item were read
+    bool moves_read = false;           // moves screen was read
 };
 
 bool operator==(const CollectedPokemonInfo& lhs, const CollectedPokemonInfo& rhs);
