@@ -9,7 +9,7 @@
 
 ## 1. Goal
 
-Sort a large HOME collection (~4,700 Pokémon across up to 6,000 slots / 200 boxes)
+Sort a large HOME collection (~4,800 Pokémon across up to 6,000 slots / 200 boxes)
 into Nicole's Master Box Layout automatically, using only data the SerialPrograms
 automation can read from the HOME summary + Judge screens. The run must be
 **stoppable at any time and resumable**, re-checking prior progress on resume, and
@@ -185,7 +185,7 @@ workflow.
 ---
 
 ## 6. Space management
-~1,300 free slots exist. The program auto-reserves the **last 2–3 boxes after the
+~1,200 free slots exist. The program auto-reserves the **last 2–3 boxes after the
 used range** as a scratch buffer (confirmed choice). Cycle-sort moves each Pokémon
 directly toward its target; displaced mons use empty slots or the buffer. If the
 buffer + empties are ever exhausted mid-plan, the program stops with a clear
