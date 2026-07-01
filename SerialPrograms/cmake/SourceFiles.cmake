@@ -1631,6 +1631,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Programs/PokemonHome_MasterBoxRouter.h
     Source/PokemonHome/Programs/PokemonHome_PageSwap.cpp
     Source/PokemonHome/Programs/PokemonHome_PageSwap.h
+    Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.cpp
+    Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.h
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_ReadSummaryScreen.cpp
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_ReadSummaryScreen.h
     Source/PokemonHome/Resources/PokemonHome_PokeballSprites.cpp
