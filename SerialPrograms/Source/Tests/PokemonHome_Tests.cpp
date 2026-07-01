@@ -689,6 +689,44 @@ int test_pokemonHome_CatalogueCsv(const ImageViewRGB32& /*image*/){
         );
     }
 
+    // Test 5: spec-required escaping: ot_name "a,b\"c" → "a,b\"\"c"
+    {
+        PA info{};
+        info.dex_number = 25;
+        info.name_slug  = "pikachu";
+        info.shiny      = true;
+        info.moves      = {"false-swipe", "spore"};
+        info.gender     = Pokemon::StatsHuntGenderFilter::Any;
+        info.ot_name    = "a,b\"c";  // comma + double-quote
+
+        std::string row = catalogue_csv_row(0, 0, 0, info, "LivingDex", 0);
+
+        // Contains dex 25
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find(",25,") != std::string::npos,
+            true,
+            "dex=25 present"
+        );
+        // Contains shiny=true
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find(",true,") != std::string::npos,
+            true,
+            "shiny=true present"
+        );
+        // Contains joined moves (may be in a quoted field since | is safe, no escaping needed)
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find("false-swipe|spore") != std::string::npos,
+            true,
+            "moves joined by pipe"
+        );
+        // OT name with comma+quote must be escaped: "a,b""c"
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find("\"a,b\"\"c\"") != std::string::npos,
+            true,
+            "ot_name comma+quote escaping"
+        );
+    }
+
     return 0;
 }
 
