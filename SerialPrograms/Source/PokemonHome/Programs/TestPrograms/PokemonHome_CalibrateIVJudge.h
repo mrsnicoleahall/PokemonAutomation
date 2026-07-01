@@ -7,6 +7,7 @@
 #ifndef PokemonAutomation_PokemonHome_CalibrateIVJudge_H
 #define PokemonAutomation_PokemonHome_CalibrateIVJudge_H
 
+#include "Common/Cpp/Options/BooleanCheckBoxOption.h"
 #include "CommonTools/Options/LanguageOCROption.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 
@@ -27,6 +28,7 @@ public:
 
 private:
     OCR::LanguageOCROption LANGUAGE;
+    BooleanCheckBoxOption READ_MOVES;
 };
 
 }
