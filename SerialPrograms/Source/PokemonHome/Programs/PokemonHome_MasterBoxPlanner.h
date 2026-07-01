@@ -77,6 +77,9 @@ bool wins_slot(
 //                        Index 0 = box scan_start slot 0; use BoxCursor arithmetic.
 // layout               — loaded master_box_layout.json.
 // cfg                  — router configuration (thresholds + dex sets).
+// scan_start           — 0-indexed absolute HOME box number of catalogue[0].
+//                        Precondition: scan_start == layout.living_dex_start_box - 1.
+//                        program() enforces this with a UserSetupError before calling.
 // scratch_box_start    — 0-indexed absolute box number of the first scratch box.
 // scratch_box_count    — number of scratch boxes available as temporary staging.
 //
@@ -93,6 +96,7 @@ MasterPlan build_master_plan(
     const std::vector<std::optional<CollectedPokemonInfo>>& catalogue,
     const MasterBoxLayout& layout,
     const RouterConfig& cfg,
+    size_t scan_start,
     uint16_t scratch_box_start,
     uint16_t scratch_box_count
 );

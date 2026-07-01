@@ -118,48 +118,49 @@ static size_t cursor_to_flat(const BoxCursor& c){
 
 
 // ---------------------------------------------------------------------------
+// Internal helper: return a human-readable name for a BoxCategory.
+// Used in warning messages so the operator sees "Breeding" rather than "2".
+// ---------------------------------------------------------------------------
+static const char* category_name(BoxCategory cat){
+    switch (cat){
+        case BoxCategory::LivingDex:     return "LivingDex";
+        case BoxCategory::Competitive:   return "Competitive";
+        case BoxCategory::Breeding:      return "Breeding";
+        case BoxCategory::Breedject:     return "Breedject";
+        case BoxCategory::Events:        return "Events";
+        case BoxCategory::GoodTrades:    return "GoodTrades";
+        case BoxCategory::DuplicateShiny:return "DuplicateShiny";
+        case BoxCategory::Legendary:     return "Legendary";
+        case BoxCategory::Mythical:      return "Mythical";
+        case BoxCategory::UltraBeast:    return "UltraBeast";
+        case BoxCategory::Paradox:       return "Paradox";
+        case BoxCategory::ManualForms:   return "ManualForms";
+        case BoxCategory::ManualOther:   return "ManualOther";
+        default:                          return "Unknown";
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // build_master_plan
 // ---------------------------------------------------------------------------
 MasterPlan build_master_plan(
     const std::vector<std::optional<CollectedPokemonInfo>>& catalogue,
     const MasterBoxLayout& layout,
     const RouterConfig& cfg,
+    size_t scan_start,
     uint16_t scratch_box_start,
     uint16_t scratch_box_count
 ){
+    // Precondition (enforced by caller via UserSetupError before this is called):
+    //   scan_start == layout.living_dex_start_box - 1
+    // The planner uses scan_start as the 0-indexed absolute box of catalogue[0].
+
     MasterPlan plan;
 
     if (catalogue.empty()){
         return plan;
     }
-
-    // -----------------------------------------------------------------------
-    // Derive scan_start from the layout's living_dex_start_box (0-indexed).
-    // The catalogue was built by scanning starting at SCAN_BOX_START-1.
-    // We need the actual scan start.  The catalogue is dense: index 0 = the
-    // first slot of the first scanned box.  We recover scan_start by looking
-    // at what box living_dex_start_box corresponds to for LivingDex entries.
-    //
-    // Actually the planner doesn't know scan_start directly — it knows the
-    // catalogue vector and the layout.  The catalogue index corresponds to
-    // slot offsets from box 0 of the scan.  We set scan_start = the 0-indexed
-    // box of the first category range encountered that maps to catalogue index 0.
-    // The simplest approach: the caller passed scan_start implicitly via the
-    // catalogue size.  We derive scan_start from layout.living_dex_start_box - 1
-    // because that is always the first scanned box for a master run.
-    // If LivingDex range starts elsewhere, we still need an anchor.
-    //
-    // Design decision: catalogue index 0 corresponds to box scan_start.
-    // scan_start is the 0-indexed absolute box of catalogue[0].
-    // We look up living_dex_start_box from the layout:
-    // -----------------------------------------------------------------------
-
-    // Find the smallest box number appearing in any category range — that is
-    // our best guess at scan_start.  Actually the task brief says scratch_box_start
-    // is given to us.  scan_start = the box that catalogue index 0 maps to.
-    // We compute it as: first box used by any category in the layout.
-    // But the cleanest is: derive from living_dex_start_box - 1 (1-indexed → 0-indexed).
-    const size_t scan_start = static_cast<size_t>(layout.living_dex_start_box - 1);
 
     const size_t catalogue_boxes = catalogue.size() / SLOTS_PER_BOX +
                                     (catalogue.size() % SLOTS_PER_BOX ? 1 : 0);
@@ -270,7 +271,7 @@ MasterPlan build_master_plan(
         // Overflow: try ManualOther.
         {
             std::ostringstream oss;
-            oss << "Category " << static_cast<int>(cat)
+            oss << "Category " << category_name(cat)
                 << " overflow for catalogue[" << ci
                 << "] (dex=" << (catalogue[ci] ? catalogue[ci]->dex_number : 0)
                 << ") — placing in ManualOther.";

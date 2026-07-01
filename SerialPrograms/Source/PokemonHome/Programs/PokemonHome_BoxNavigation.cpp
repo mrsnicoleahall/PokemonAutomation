@@ -38,8 +38,25 @@ namespace PokemonHome{
 using namespace Pokemon;
 
 
+// ---------------------------------------------------------------------------
+// Shared per-slot occupancy test — used by both find_occupied_slots_in_box
+// and BoxSorterMaster::count_occupied_slots_in_box so they cannot disagree on
+// a borderline slot.  Grid coordinates and stddev threshold must stay in sync
+// here only (not duplicated in two places).
+// ---------------------------------------------------------------------------
+bool slot_is_occupied(const ImageViewRGB32& screen, size_t row, size_t col){
+    ImageFloatBox slot_box(
+        0.06 + (0.072 * static_cast<double>(col)),
+        0.2  + (0.105 * static_cast<double>(row)),
+        0.03, 0.057
+    );
+    const int stddev = static_cast<int>(image_stddev(extract_box_reference(screen, slot_box)).sum());
+    return stddev >= 10;
+}
+
+
 // Move the red cursor to the first slot of the box
-// If the cursor is not at the first slot, move the cursor to the left and up one row at a time until it is at the first slot. 
+// If the cursor is not at the first slot, move the cursor to the left and up one row at a time until it is at the first slot.
 bool go_to_first_slot(
     SingleSwitchProgramEnvironment& env,
     ProControllerContext& context,
@@ -184,13 +201,14 @@ std::array<size_t, 2> find_occupied_slots_in_box(
     int num_empty_slots = 0;
     for (size_t row = 0; row < BOX_ROWS; row++) {
         for (size_t col = 0; col < BOX_COLS; col++) {
-            ImageFloatBox slot_box(0.06 + (0.072 * col), 0.2 + (0.105 * row), 0.03, 0.057);
-            int current_box_value = (int)image_stddev(extract_box_reference(screen, slot_box)).sum();
+            // Use the shared occupancy test so this and count_occupied_slots_in_box
+            // cannot disagree on borderline slots.
+            const bool occupied = slot_is_occupied(screen, row, col);
 
-            ss << current_box_value;
+            ss << (occupied ? "10+" : "0");
 
             //checking color to know if a pokemon is on the slot or not
-            if (current_box_value < 10) {
+            if (!occupied) {
                 //stats.empty++;
                 num_empty_slots++;
                 boxes_data.push_back(std::nullopt); //empty optional to make sorting easier later

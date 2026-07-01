@@ -8,9 +8,11 @@
 #define PokemonAutomation_PokemonHome_BoxNavigation_H
 
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <vector>
 #include "Common/Cpp/Time.h"
+#include "CommonFramework/ImageTypes/ImageViewRGB32.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "Pokemon/Pokemon_BoxCursor.h"
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
@@ -19,6 +21,20 @@
 namespace PokemonAutomation{
 namespace NintendoSwitch{
 namespace PokemonHome{
+
+// ---------------------------------------------------------------------------
+// Shared per-slot occupancy test.
+//
+// Returns true when the slot at (row, col) within the box-grid region of
+// `screen` appears to contain a Pokémon icon.
+//
+// Uses stddev >= 10 on the icon sub-rectangle — the same coordinates and
+// threshold used by both find_occupied_slots_in_box and
+// BoxSorterMaster::count_occupied_slots_in_box.  Both functions call this
+// helper so the two notions of "occupied" cannot diverge.
+// ---------------------------------------------------------------------------
+bool slot_is_occupied(const ImageViewRGB32& screen, size_t row, size_t col);
+
 
 // Move the red cursor to the first slot of the box
 bool go_to_first_slot(

@@ -191,7 +191,6 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
     layout.category_box_ranges[BoxCategory::UltraBeast]     = {52, 52};
     layout.category_box_ranges[BoxCategory::Paradox]        = {53, 53};
     layout.category_box_ranges[BoxCategory::ManualForms]    = {54, 54};
-    layout.category_box_ranges[BoxCategory::Breeding]       = {41, 43};
 
     // RouterConfig: owner = "nicole"
     RouterConfig cfg;
@@ -315,7 +314,8 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
 
     // scratch: 3 boxes starting after scan range.
     // scan_start=0, catalogue covers box 0 (1 box).  scratch_box_start = 1 (just after scan).
-    MasterPlan plan2 = build_master_plan(cat2, layout, cfg, /*scratch_box_start=*/55, /*scratch_box_count=*/3);
+    // scan_start = layout.living_dex_start_box - 1 = 0 (precondition enforced by program()).
+    MasterPlan plan2 = build_master_plan(cat2, layout, cfg, /*scan_start=*/0, /*scratch_box_start=*/55, /*scratch_box_count=*/3);
 
     // No blocking warnings.
     bool has_blocking2 = false;
@@ -364,7 +364,7 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
     bulba3.ot_name    = "nicole";
     cat3[0] = bulba3;
 
-    MasterPlan plan3 = build_master_plan(cat3, layout, cfg, /*scratch_box_start=*/55, /*scratch_box_count=*/3);
+    MasterPlan plan3 = build_master_plan(cat3, layout, cfg, /*scan_start=*/0, /*scratch_box_start=*/55, /*scratch_box_count=*/3);
     // Bulbasaur is already at flat=0 = LivingDex slot 0 → no moves.
     TEST_RESULT_EQUAL(plan3.moves.empty(), true);
 

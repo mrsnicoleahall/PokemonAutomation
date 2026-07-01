@@ -75,11 +75,12 @@ private:
         bool skip_occupancy_check          // true when execute pass already started (moves_done>0)
     );
 
-    // Scan box_idx (0-indexed relative to SCAN_BOX_START) and count occupied slots.
+    // Scan the current box and count occupied slots.
     // Used for resume fingerprinting: compare against saved count in JSON.
+    // Delegates per-slot detection to slot_is_occupied() (BoxNavigation) so
+    // the threshold stays in sync with find_occupied_slots_in_box().
     size_t count_occupied_slots_in_box(
-        SingleSwitchProgramEnvironment& env,
-        ProControllerContext& context
+        SingleSwitchProgramEnvironment& env
     );
 
     // -----------------------------------------------------------------------

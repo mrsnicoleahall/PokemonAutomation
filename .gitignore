@@ -56,7 +56,6 @@ SerialPrograms/*.lib
 
 .vs
 Resources/*
-Packages/
 SerialPrograms/CMakeLists.txt.user
 opencv_world4120.dll
 opencv_world4120d.dll
@@ -73,10 +72,8 @@ CLAUDE.md
 
 build_*/
 .cache/*
-Packages/*
-
+Packages/
 
 .aqtvenv/
-/Packages/
 /build_mac/
 aqtinstall.log

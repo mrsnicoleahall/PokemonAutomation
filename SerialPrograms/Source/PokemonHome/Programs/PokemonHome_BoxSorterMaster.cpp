@@ -16,7 +16,6 @@
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Strings/Unicode.h"
 #include "CommonFramework/Exceptions/OperationFailedException.h"
-#include "CommonFramework/ImageTools/ImageStats.h"
 #include "CommonFramework/Notifications/ProgramNotifications.h"
 #include "CommonFramework/ProgramStats/StatsTracking.h"
 #include "CommonFramework/VideoPipeline/VideoFeed.h"
@@ -63,7 +62,7 @@ BoxSorterMaster_Descriptor::BoxSorterMaster_Descriptor()
         STRING_POKEMON + " Home", "Master Box Sorter",
         "Programs/PokemonHome/BoxSorterMaster.html",
         "Catalogue all " + STRING_POKEMON + " across your HOME boxes with IV data, "
-        "then (Task 8) sort them into their designated category boxes.",
+        "then sort them into their designated category boxes.",
         ProgramControllerClass::StandardController_RequiresPrecision,
         FeedbackType::REQUIRED,
         AllowCommandsWhenRunning::DISABLE_COMMANDS
@@ -298,6 +297,18 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
                 // Return to summary screen.
                 pbf_press_button(context, BUTTON_B, 80ms, 400ms);
                 context.wait_for_all_requests();
+                // Confirm we're back on the summary screen (symmetric with Judge-entry watcher).
+                {
+                    SummaryScreenWatcher back_watcher(&env.console.overlay());
+                    int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
+                    if (back_ret != 0){
+                        OperationFailedException::fire(
+                            ErrorReport::SEND_ERROR_REPORT,
+                            "BoxSorterMaster: Summary screen not found after B from Judge screen",
+                            env.console
+                        );
+                    }
+                }
             }
             else{
                 // Judge screen confirmed — snapshot and read.
@@ -331,6 +342,18 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
                 // Return to summary screen.
                 pbf_press_button(context, BUTTON_B, 80ms, 400ms);
                 context.wait_for_all_requests();
+                // Confirm we're back (Important 6: symmetric to the Judge-entry watcher).
+                {
+                    SummaryScreenWatcher back_watcher(&env.console.overlay());
+                    int back_ret = wait_until(env.console, context, Seconds(5), { back_watcher });
+                    if (back_ret != 0){
+                        OperationFailedException::fire(
+                            ErrorReport::SEND_ERROR_REPORT,
+                            "BoxSorterMaster: Summary screen not found after B from Judge screen",
+                            env.console
+                        );
+                    }
+                }
             }
         }
     }
@@ -346,23 +369,17 @@ void BoxSorterMaster::read_summary_screen_with_ivs(
 // ---------------------------------------------------------------------------
 
 size_t BoxSorterMaster::count_occupied_slots_in_box(
-    SingleSwitchProgramEnvironment& env,
-    ProControllerContext& context
+    SingleSwitchProgramEnvironment& env
 ){
     VideoSnapshot screen = env.console.video().snapshot();
     size_t count = 0;
     for (size_t row = 0; row < BOX_ROWS; row++){
         for (size_t col = 0; col < BOX_COLS; col++){
-            ImageFloatBox slot_box(
-                0.06 + (0.072 * static_cast<double>(col)),
-                0.2  + (0.105 * static_cast<double>(row)),
-                0.03, 0.057
-            );
-            int stddev = static_cast<int>(image_stddev(extract_box_reference(screen, slot_box)).sum());
-            if (stddev >= 10){ count++; }
+            // Delegate to the shared helper in BoxNavigation so the occupancy
+            // threshold cannot diverge from find_occupied_slots_in_box.
+            if (slot_is_occupied(screen, row, col)){ count++; }
         }
     }
-    (void)context; // not currently needed but kept for future use
     return count;
 }
 
@@ -441,7 +458,7 @@ size_t BoxSorterMaster::count_occupied_slots_in_box(
         env.console.overlay().add_log(log_msg);
 
         // Count occupancy for resume fingerprinting.
-        const size_t occupancy = count_occupied_slots_in_box(env, context);
+        const size_t occupancy = count_occupied_slots_in_box(env);
         box_fingerprints.push_back(occupancy);
 
         if (box_rel < already_done_boxes){
@@ -653,6 +670,48 @@ void BoxSorterMaster::program(
     }
 
     // -----------------------------------------------------------------------
+    // Detect whether the execute pass has already started (moves_done > 0).
+    //
+    // CRITICAL: if moves_done > 0, the physical board no longer matches the
+    // catalogue JSON written during the catalogue phase.  We must NOT reuse
+    // that stale catalogue for planning — doing so would produce move
+    // coordinates based on a board state that no longer exists and can cause
+    // overwrites/misplacements.  Instead we force a full live re-catalogue
+    // (execute_already_started = true → already_done_boxes = 0 below).
+    // -----------------------------------------------------------------------
+    size_t stored_moves_done  = 0;
+    size_t stored_total_moves = 0;
+    bool   execute_already_started = false;
+
+    if (!fresh_start){
+        JsonValue prog_val;
+        try{ prog_val = load_json_file(progress_path); }
+        catch (...){ prog_val = JsonValue(); }
+        if (prog_val.is_object()){
+            const JsonObject* prog = prog_val.to_object();
+            if (prog){
+                const JsonValue* done_val  = prog->get_value("moves_done");
+                const JsonValue* total_val = prog->get_value("total_moves");
+                if (done_val  && done_val ->is_integer())
+                    stored_moves_done  = static_cast<size_t>(done_val ->to_integer_default(0));
+                if (total_val && total_val->is_integer())
+                    stored_total_moves = static_cast<size_t>(total_val->to_integer_default(0));
+
+                if (stored_moves_done > 0){
+                    execute_already_started = true;
+                    env.log(
+                        "BoxSorterMaster: Execute pass already started ("
+                        + std::to_string(stored_moves_done) + " moves done of "
+                        + std::to_string(stored_total_moves) + " stored) — "
+                        "will re-catalogue live state to compute a fresh plan.",
+                        COLOR_YELLOW
+                    );
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Catalogue with resume support
     // -----------------------------------------------------------------------
 
@@ -660,7 +719,10 @@ void BoxSorterMaster::program(
     size_t already_done_boxes   = 0;
     std::vector<size_t> saved_fingerprints;
 
-    if (!fresh_start){
+    if (!fresh_start && !execute_already_started){
+        // Catalogue-phase resume: the board has NOT been touched by any move,
+        // so the saved catalogue is still valid.  Reload it and skip already-done
+        // boxes (with occupancy-mismatch checks to catch external changes).
         bool loaded = load_catalogue_resume(
             catalogue,
             already_done_boxes,
@@ -669,7 +731,7 @@ void BoxSorterMaster::program(
         );
         if (loaded){
             env.log(
-                "BoxSorterMaster: Resuming from existing catalogue — " +
+                "BoxSorterMaster: Resuming catalogue — " +
                 std::to_string(already_done_boxes) + " boxes already recorded."
             );
         }
@@ -678,29 +740,14 @@ void BoxSorterMaster::program(
             already_done_boxes = 0;
         }
     }
-
-    // Detect whether the execute pass has already started (moves_done > 0).
-    // If so, we must skip the occupancy-mismatch check in catalogue_boxes:
-    // moves legitimately change box occupancy, so the saved fingerprints will
-    // no longer match live state — but that is expected and not an error.
-    bool execute_already_started = false;
-    if (!fresh_start){
-        JsonValue prog_val;
-        try{ prog_val = load_json_file(progress_path); }
-        catch (...){ prog_val = JsonValue(); }
-        if (prog_val.is_object()){
-            const JsonObject* prog = prog_val.to_object();
-            if (prog){
-                const JsonValue* done_val = prog->get_value("moves_done");
-                if (done_val && done_val->is_integer() && done_val->to_integer_default(0) > 0){
-                    execute_already_started = true;
-                    env.log(
-                        "BoxSorterMaster: Execute pass already started — "
-                        "skipping occupancy-mismatch check on catalogue resume."
-                    );
-                }
-            }
-        }
+    else if (execute_already_started){
+        // Execute-resume: moves have already altered the board.  The saved
+        // catalogue is stale.  Force a full live re-catalogue (already_done_boxes
+        // stays 0, skip_occupancy_check = true since fingerprints are invalid).
+        env.log(
+            "BoxSorterMaster: Execute-resume — ignoring stale catalogue, "
+            "re-cataloguing all boxes from live state."
+        );
     }
 
     exit_menus(env, context, VIDEO_DELAY.get());
@@ -708,6 +755,8 @@ void BoxSorterMaster::program(
     BoxCursor nav_cursor(scan_start, 0, 0);
 
     // Run the catalogue pass.
+    // skip_occupancy_check is true on execute-resume: the board has changed due
+    // to moves, so saved fingerprints are no longer meaningful.
     nav_cursor = catalogue_boxes(
         env, context,
         catalogue,
@@ -720,7 +769,7 @@ void BoxSorterMaster::program(
         output_path,
         already_done_boxes,
         saved_fingerprints,   // Part C.2: for occupancy mismatch check on resume
-        execute_already_started  // Fix 1: skip check if execute already started
+        execute_already_started  // skip check if execute already started (moves changed board)
     );
 
     env.log("BoxSorterMaster: Catalogue pass complete. JSON written to: " + output_path);
@@ -783,9 +832,12 @@ void BoxSorterMaster::program(
     const uint16_t scratch_box_count = 3;
 
     // Build the move plan.
+    // Pass scan_start explicitly — the planner no longer self-derives it from the
+    // layout.  The UserSetupError guard above already verifies
+    // SCAN_BOX_START == layout.living_dex_start_box, so scan_start is well-defined.
     env.log("BoxSorterMaster: Building move plan...");
     MasterPlan master_plan = build_master_plan(
-        catalogue, layout, router_cfg, scratch_box_start, scratch_box_count
+        catalogue, layout, router_cfg, scan_start, scratch_box_start, scratch_box_count
     );
     env.log(
         "BoxSorterMaster: Plan has " + std::to_string(master_plan.moves.size()) +
@@ -847,38 +899,32 @@ void BoxSorterMaster::program(
 
     // -----------------------------------------------------------------------
     // Execute pass — execute moves one at a time, writing progress after each.
-    // Resume: if !fresh_start and progress file exists, skip done moves.
+    //
+    // Resume safety: on execute-resume we re-catalogued live state above and
+    // built a fresh plan.  The fresh plan IS the correct remaining work —
+    // we never replay a suffix of a stale plan by index.  Execute the full
+    // fresh plan from move 0.
+    //
+    // Important 3: if stored_total_moves differs from the fresh plan size,
+    // log it so the operator is aware (options or layout may have changed),
+    // then proceed with the fresh plan — it is the source of truth.
     // -----------------------------------------------------------------------
 
-    // Load previously-completed move indices from progress file (resume).
-    size_t moves_done = 0;
-    if (!fresh_start){
-        // Attempt to load progress.
-        JsonValue prog_val;
-        try{
-            prog_val = load_json_file(progress_path);
-        }
-        catch (...){
-            prog_val = JsonValue();  // missing/unreadable → fresh
-        }
-        if (prog_val.is_object()){
-            const JsonObject* prog = prog_val.to_object();
-            if (prog){
-                const JsonValue* done_val = prog->get_value("moves_done");
-                if (done_val && done_val->is_integer()){
-                    moves_done = static_cast<size_t>(done_val->to_integer_default(0));
-                    env.log(
-                        "BoxSorterMaster: Resuming execute — " +
-                        std::to_string(moves_done) + " moves already completed."
-                    );
-                }
-            }
-        }
-        if (moves_done >= master_plan.moves.size()){
-            env.log("BoxSorterMaster: All moves already complete (resume). Skipping execute.");
-            send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
-            return;
-        }
+    if (execute_already_started && stored_total_moves > 0 &&
+        stored_total_moves != master_plan.moves.size()){
+        env.log(
+            "BoxSorterMaster: Plan size changed on execute-resume — "
+            "stored=" + std::to_string(stored_total_moves) +
+            ", fresh=" + std::to_string(master_plan.moves.size()) +
+            ". Proceeding with fresh plan derived from live state.",
+            COLOR_YELLOW
+        );
+    }
+
+    if (master_plan.moves.empty()){
+        env.log("BoxSorterMaster: No moves needed — all Pokémon already in place.");
+        send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
+        return;
     }
 
     // Helper to write progress JSON.
@@ -889,26 +935,67 @@ void BoxSorterMaster::program(
         prog.dump(progress_path);
     };
 
-    // Execute remaining moves.
-    for (size_t mi = moves_done; mi < master_plan.moves.size(); mi++){
+    // Execute all moves in the fresh plan.
+    // CRITICAL 2: After each swap, read the affected slots' occupancy to confirm
+    // the move happened as expected (non-empty in expected post-move positions).
+    // On mismatch, stop with a UserSetupError before any further move.
+    for (size_t mi = 0; mi < master_plan.moves.size(); mi++){
         const PlannedMove& mv = master_plan.moves[mi];
 
+        const std::string move_label =
+            "Move " + std::to_string(mi + 1) + "/" +
+            std::to_string(master_plan.moves.size()) +
+            ": [box=" + std::to_string(mv.from.box) +
+            " row=" + std::to_string(mv.from.row) +
+            " col=" + std::to_string(mv.from.column) + "] → [box=" +
+            std::to_string(mv.to.box) +
+            " row=" + std::to_string(mv.to.row) +
+            " col=" + std::to_string(mv.to.column) + "]";
+
+        // Navigate to the 'from' slot and pick up (Y).
         nav_cursor = move_cursor_to(env, context, nav_cursor, mv.from, GAME_DELAY);
         pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
-
-        nav_cursor = move_cursor_to(env, context, nav_cursor, mv.to, GAME_DELAY);
-        pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
-
         context.wait_for_all_requests();
 
-        env.log(
-            "BoxSorterMaster: Move " + std::to_string(mi + 1) + "/" +
-            std::to_string(master_plan.moves.size()) +
-            ": [" + std::to_string(mv.from.box) + "," + std::to_string(mv.from.row) +
-            "," + std::to_string(mv.from.column) + "] → [" +
-            std::to_string(mv.to.box) + "," + std::to_string(mv.to.row) +
-            "," + std::to_string(mv.to.column) + "]"
-        );
+        // Navigate to the 'to' slot and place (Y = swap).
+        nav_cursor = move_cursor_to(env, context, nav_cursor, mv.to, GAME_DELAY);
+        pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+        context.wait_for_all_requests();
+
+        env.log("BoxSorterMaster: " + move_label);
+
+        // ------------------------------------------------------------------
+        // CRITICAL 2 — Post-move verification.
+        //
+        // After a HOME Y-swap the 'to' slot must be occupied (it received
+        // the picked-up Pokémon).  The 'from' slot may be occupied or empty
+        // depending on whether it was a swap (from had a Pokémon that moved
+        // to 'to' and 'to''s original occupant came back) or a simple drop
+        // (from was occupied, to was empty → from is now empty, to occupied).
+        //
+        // The one invariant we can check without re-reading summaries:
+        //   'to' slot must be occupied after the move.
+        // If it is empty, something went wrong (Y was not registered, the
+        // cursor was at the wrong position, HOME dropped the pick-up, etc.)
+        // and continuing would misplace or overwrite Pokémon.
+        // ------------------------------------------------------------------
+        {
+            // Navigate to the 'to' box to snapshot it (cursor is already there).
+            VideoSnapshot post_move_screen = env.console.video().snapshot();
+            const bool to_occupied =
+                slot_is_occupied(post_move_screen, mv.to.row, mv.to.column);
+
+            if (!to_occupied){
+                throw UserSetupError(
+                    env.logger(),
+                    "BoxSorterMaster: Post-move verification FAILED for " + move_label +
+                    " — destination slot appears empty after the swap. "
+                    "The move may not have registered or the cursor was off. "
+                    "Stopping to prevent further misplacement. "
+                    "Enable 'Fresh Start' after manually correcting the board state."
+                );
+            }
+        }
 
         write_progress(mi + 1);
     }
@@ -1006,12 +1093,8 @@ bool load_catalogue_resume(
     {
         const JsonValue* bval = root->get_value("boxes_done");
         if (!bval || !bval->is_integer()){ return false; }
-        const size_t bkdone_inner = static_cast<size_t>(bval->to_integer_default(0));
-        // Store for later commit.
-        boxes_done = bkdone_inner;
+        boxes_done = static_cast<size_t>(bval->to_integer_default(0));
     }
-    // Re-read as local var for clarity (boxes_done was just set above).
-    const size_t bkdone = boxes_done;
 
     // Read box_occupancy fingerprints.
     std::vector<size_t> fp;
@@ -1109,7 +1192,6 @@ bool load_catalogue_resume(
     // Commit.  (boxes_done was already written into the out-param above.)
     catalogue                  = std::move(loaded);
     box_occupancy_fingerprints = std::move(fp);
-    (void)bkdone; // already committed to boxes_done in the block above
     return true;
 }
 
