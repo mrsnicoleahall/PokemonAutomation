@@ -11,6 +11,7 @@
 #include "Programs/PokemonHome_PageSwap.h"
 #include "Programs/PokemonHome_BoxSorter.h"
 #include "Programs/PokemonHome_BoxSorterLivingDex.h"
+#include "Programs/PokemonHome_BoxSorterMaster.h"
 
 #include "Programs/PokemonHome_GenerateNameOCR.h"
 #include "Programs/TestPrograms/PokemonHome_CalibrateIVJudge.h"
@@ -36,6 +37,7 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
     ret.emplace_back(make_single_switch_program<PokemonHome::BoxSorter_Descriptor, PokemonHome::BoxSorter>());
     if (IS_BETA_VERSION || PreloadSettings::instance().DEVELOPER_MODE){
         ret.emplace_back(make_single_switch_program<PokemonHome::BoxSorterLivingDex_Descriptor, PokemonHome::BoxSorterLivingDex>());
+        ret.emplace_back(make_single_switch_program<PokemonHome::BoxSorterMaster_Descriptor, PokemonHome::BoxSorterMaster>());
     }
 //    ret.emplace_back("---- Trading ----");
 
