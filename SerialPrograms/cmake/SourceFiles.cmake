@@ -1611,6 +1611,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Inference/PokemonHome_OriginMarkReader.h
     Source/PokemonHome/Inference/PokemonHome_SelectionArrowDetector.cpp
     Source/PokemonHome/Inference/PokemonHome_SelectionArrowDetector.h
+    Source/PokemonHome/Inference/PokemonHome_MovesReader.cpp
+    Source/PokemonHome/Inference/PokemonHome_MovesReader.h
     Source/PokemonHome/Inference/PokemonHome_SummaryExtrasReader.cpp
     Source/PokemonHome/Inference/PokemonHome_SummaryExtrasReader.h
     Source/PokemonHome/Inference/PokemonHome_TeraTypeReader.cpp
