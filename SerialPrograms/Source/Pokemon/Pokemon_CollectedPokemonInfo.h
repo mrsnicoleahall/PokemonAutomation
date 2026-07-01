@@ -38,6 +38,12 @@ struct CollectedPokemonInfo{
     PokemonType secondary_type = PokemonType::NONE;
     PokemonTeraType tera_type = PokemonTeraType::NONE;
     OriginMark origin_mark = OriginMark::NONE;
+
+    // IV data from the HOME Judge screen (see PokemonHome_IVJudgeReader).
+    bool iv_read = false;
+    uint8_t iv_best_count = 0;       // number of stats judged "Best" (31)
+    uint16_t iv_total_estimate = 0;  // sum of per-stat tier midpoints (0..186)
+    bool iv_perfect = false;         // iv_best_count == 6
 };
 
 bool operator==(const CollectedPokemonInfo& lhs, const CollectedPokemonInfo& rhs);

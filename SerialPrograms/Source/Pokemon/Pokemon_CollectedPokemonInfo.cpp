@@ -31,7 +31,11 @@ bool operator==(const CollectedPokemonInfo& lhs, const CollectedPokemonInfo& rhs
            lhs.primary_type == rhs.primary_type &&
            lhs.secondary_type == rhs.secondary_type &&
            lhs.tera_type == rhs.tera_type &&
-           lhs.origin_mark == rhs.origin_mark;
+           lhs.origin_mark == rhs.origin_mark &&
+           lhs.iv_read == rhs.iv_read &&
+           lhs.iv_best_count == rhs.iv_best_count &&
+           lhs.iv_total_estimate == rhs.iv_total_estimate &&
+           lhs.iv_perfect == rhs.iv_perfect;
 }
 
 
@@ -121,6 +125,10 @@ std::ostream& operator<<(std::ostream& os, const std::optional<CollectedPokemonI
         os << "secondaryType:" << POKEMON_TYPE_SLUGS().get_string(pokemon->secondary_type) << " ";
         os << "teraType:" << POKEMON_TERA_TYPE_SLUGS().get_string(pokemon->tera_type) << " ";
         os << "originMark:" << ORIGIN_MARK_SLUGS().get_string(pokemon->origin_mark) << " ";
+        os << "iv_read:" << (pokemon->iv_read ? "true" : "false") << " ";
+        os << "iv31:" << (int)pokemon->iv_best_count << " ";
+        os << "ivperfect:" << (pokemon->iv_perfect ? "true" : "false") << " ";
+        os << "iv_total:" << pokemon->iv_total_estimate << " ";
         os << ")";
     }else{
         os << "(empty)";
@@ -176,6 +184,10 @@ void save_boxes_data_to_json(const std::vector<std::optional<CollectedPokemonInf
             pokemon["secondary_type"] = POKEMON_TYPE_SLUGS().get_string(current_pokemon->secondary_type);
             pokemon["tera_type"] = POKEMON_TERA_TYPE_SLUGS().get_string(current_pokemon->tera_type);
             pokemon["origin_mark"] = ORIGIN_MARK_SLUGS().get_string(current_pokemon->origin_mark);
+            pokemon["iv_read"] = current_pokemon->iv_read;
+            pokemon["iv_best_count"] = current_pokemon->iv_best_count;
+            pokemon["iv_total_estimate"] = current_pokemon->iv_total_estimate;
+            pokemon["iv_perfect"] = current_pokemon->iv_perfect;
         }
         pokemon_data.push_back(std::move(pokemon));
     }
