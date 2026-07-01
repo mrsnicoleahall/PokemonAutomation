@@ -5,6 +5,7 @@
  */
 
 #include <map>
+#include <set>
 #include <string>
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Json/JsonArray.h"
@@ -88,8 +89,12 @@ MasterBoxLayout load_master_box_layout(const std::string& path){
                 );
             }
             int64_t start_val = 0, end_val = 0;
-            pair_arr[0].read_integer(start_val);
-            pair_arr[1].read_integer(end_val);
+            if (!pair_arr[0].read_integer(start_val) || !pair_arr[1].read_integer(end_val)){
+                throw std::runtime_error(
+                    "master_box_layout.json: non-integer range bound in category \""
+                    + cat_name + "\" in " + path
+                );
+            }
             BoxCategory cat = parse_category(cat_name, path);
             layout.category_box_ranges[cat] = {
                 static_cast<uint16_t>(start_val),
