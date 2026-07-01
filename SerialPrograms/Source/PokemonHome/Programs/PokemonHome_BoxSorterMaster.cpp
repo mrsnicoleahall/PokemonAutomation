@@ -5,6 +5,7 @@
  */
 
 #include <algorithm>
+#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -37,6 +38,7 @@
 #include "PokemonHome/Inference/PokemonHome_SummaryExtrasReader.h"
 #include "PokemonHome_BoxNavigation.h"
 #include "PokemonHome_BoxSorterMaster.h"
+#include "PokemonHome_CatalogueCsv.h"
 #include "PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome_MasterBoxRouter.h"
@@ -269,6 +271,13 @@ BoxSorterMaster::BoxSorterMaster()
         "home_catalogue",
         "home_catalogue"
     )
+    , EXPORT_CSV(
+        "<b>Export CSV:</b><br>After building the plan, write a CSV of the "
+        "full catalogue (one row per Pokémon) to &lt;Output File&gt;.csv. "
+        "No hardware interaction — pure in-memory write.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
     , DRY_RUN(
         "<b>Dry Run:</b><br>Catalogue and write JSON without moving any " + STRING_POKEMON + ". "
         "Task 8 (execute pass) is the only phase that moves " + STRING_POKEMON + ".",
@@ -305,6 +314,7 @@ BoxSorterMaster::BoxSorterMaster()
     PA_ADD_OPTION(VIDEO_DELAY);
     PA_ADD_OPTION(GAME_DELAY);
     PA_ADD_OPTION(OUTPUT_FILE);
+    PA_ADD_OPTION(EXPORT_CSV);
     PA_ADD_OPTION(DRY_RUN);
     PA_ADD_OPTION(FRESH_START);
     PA_ADD_OPTION(NOTIFICATIONS);
@@ -1183,6 +1193,39 @@ void BoxSorterMaster::program(
         plan_root["warnings"] = std::move(warn_arr);
         plan_root.dump(plan_path);
         env.log("BoxSorterMaster: Plan written to: " + plan_path);
+    }
+
+    // Write CSV export if requested.
+    if (static_cast<bool>(EXPORT_CSV)){
+        const std::string csv_path = static_cast<std::string>(OUTPUT_FILE) + ".csv";
+        std::ofstream csv_out(csv_path);
+        if (csv_out.is_open()){
+            csv_out << catalogue_csv_header();
+            for (size_t ci = 0; ci < catalogue.size(); ci++){
+                if (!catalogue[ci].has_value()) continue;
+                BoxCursor cur(ci);   // slot_idx → (box, row, col) within scanned range
+                // ci is offset from scan_start, so absolute box = scan_start + cur.box
+                const size_t abs_box = scan_start + cur.box;
+                std::string cat_name;
+                int dest_box_val = -1;
+                if (ci < master_plan.slot_routes.size()){
+                    cat_name     = master_plan.slot_routes[ci].category;
+                    dest_box_val = master_plan.slot_routes[ci].dest_box;
+                }
+                csv_out << catalogue_csv_row(
+                    abs_box,          // 0-indexed absolute box
+                    cur.row,
+                    cur.column,
+                    *catalogue[ci],
+                    cat_name,
+                    dest_box_val
+                );
+            }
+            env.log("BoxSorterMaster: CSV written to: " + csv_path);
+        }
+        else{
+            env.log("BoxSorterMaster: WARNING — could not open CSV file: " + csv_path, COLOR_YELLOW);
+        }
     }
 
     // Check for blocking warnings before touching hardware.

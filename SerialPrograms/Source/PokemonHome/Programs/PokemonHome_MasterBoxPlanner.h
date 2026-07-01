@@ -49,6 +49,14 @@ struct MasterPlan{
     // proceed (no space for an intermediary, or category box overflow with no
     // ManualOther space left).
     std::vector<std::string> warnings;
+
+    // Per catalogue-entry routing result (parallel to the catalogue vector).
+    // Index ci → {category name string, dest_box (0-indexed absolute HOME box, or -1 if unplaceable)}
+    struct SlotRoute{
+        std::string category;   // e.g. "LivingDex", "Breeding"
+        int dest_box = -1;      // 0-indexed absolute HOME box number (-1 = unplaceable)
+    };
+    std::vector<SlotRoute> slot_routes;  // size == catalogue.size()
 };
 
 

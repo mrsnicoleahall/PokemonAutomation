@@ -229,6 +229,10 @@ MasterPlan build_master_plan(
 
     std::vector<size_t> target_slot(catalogue.size(), SIZE_MAX);
 
+    // Parallel vector tracking the final routed BoxCategory per catalogue entry.
+    // Used at the end of Phase 1 to populate plan.slot_routes.
+    std::vector<BoxCategory> routed_cat(catalogue.size(), BoxCategory::ManualOther);
+
     // living-dex winner map: dex_number → catalogue_index of the current winner.
     std::map<uint16_t, size_t> living_dex_winner;  // dex → ci of winner
 
@@ -350,6 +354,7 @@ MasterPlan build_master_plan(
             // Non-LivingDex category: assign to bucket.
             size_t flat = assign_bucket(ci, cat);
             target_slot[ci] = flat;
+            routed_cat[ci] = cat;
         }
     }
 
@@ -360,6 +365,7 @@ MasterPlan build_master_plan(
         auto flat_opt = category_flat(BoxCategory::LivingDex, n);
         if (flat_opt){
             target_slot[winner_ci] = *flat_opt;
+            routed_cat[winner_ci] = BoxCategory::LivingDex;
         }
         else{
             // Dex number out of LivingDex range — treat as overflow to ManualOther.
@@ -369,6 +375,7 @@ MasterPlan build_master_plan(
             plan.warnings.push_back(oss.str());
             size_t flat = assign_bucket(winner_ci, BoxCategory::ManualOther);
             target_slot[winner_ci] = flat;
+            routed_cat[winner_ci] = BoxCategory::ManualOther;
         }
     }
 
@@ -399,6 +406,18 @@ MasterPlan build_master_plan(
 
         size_t flat = assign_bucket(ci, cat);
         target_slot[ci] = flat;
+        routed_cat[ci] = cat;
+    }
+
+    // Populate slot_routes from target_slot and routed_cat.
+    plan.slot_routes.resize(catalogue.size());
+    for (size_t ci = 0; ci < catalogue.size(); ci++){
+        if (!catalogue[ci].has_value()) continue;
+        plan.slot_routes[ci].category = category_name(routed_cat[ci]);
+        if (target_slot[ci] != SIZE_MAX){
+            plan.slot_routes[ci].dest_box = static_cast<int>(target_slot[ci] / SLOTS_PER_BOX);
+        }
+        // else: dest_box stays at default -1 (unplaceable)
     }
 
     // -----------------------------------------------------------------------

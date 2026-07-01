@@ -5,9 +5,12 @@
  */
 
 
+#include <sstream>
+#include <vector>
 #include "CommonFramework/Globals.h"
 #include "PokemonHome/Inference/PokemonHome_ButtonDetector.h"
 #include "PokemonHome/Inference/PokemonHome_IvSummary.h"
+#include "PokemonHome/Programs/PokemonHome_CatalogueCsv.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouter.h"
@@ -578,6 +581,113 @@ int test_pokemonHome_IvSummary(const ImageViewRGB32& /*image*/){
     TEST_RESULT_EQUAL(m.best_count, static_cast<uint8_t>(2));
     TEST_RESULT_EQUAL(m.perfect, false);
     TEST_RESULT_EQUAL(m.read, false);   // UnableToDetect -> not fully read
+
+    return 0;
+}
+
+int test_pokemonHome_CatalogueCsv(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    using PA = Pokemon::CollectedPokemonInfo;
+
+    // Test 1: header has exactly 28 columns.
+    {
+        std::string hdr = catalogue_csv_header();
+        // Remove trailing newline for counting.
+        if (!hdr.empty() && hdr.back() == '\n'){ hdr.pop_back(); }
+        int commas = 0;
+        for (char c : hdr){ if (c == ',') commas++; }
+        TEST_RESULT_EQUAL(commas, 27);  // 28 columns = 27 commas
+
+        // Verify exact column order at start.
+        const std::string expected_prefix = "box,row,col,dex,species,shiny,";
+        TEST_RESULT_COMPONENT_EQUAL(
+            hdr.substr(0, expected_prefix.size()),
+            expected_prefix,
+            "header_prefix"
+        );
+    }
+
+    // Test 2: row output for a known CollectedPokemonInfo.
+    {
+        PA info{};
+        info.dex_number         = 133;
+        info.name_slug          = "eevee";
+        info.shiny              = true;
+        info.gmax               = false;
+        info.alpha              = false;
+        info.ball_slug          = "poke-ball";
+        info.gender             = Pokemon::StatsHuntGenderFilter::Female;
+        info.ot_id              = 12345;
+        info.ot_name            = "Nicole";
+        info.iv_read            = true;
+        info.iv_best_count      = 6;
+        info.iv_total_estimate  = 186;
+        info.iv_perfect         = true;
+        info.ability_slug       = "adaptability";
+        info.nature             = "timid";
+        info.held_item_slug     = "leftovers";
+        info.extras_read        = true;
+        info.moves_read         = true;
+        info.moves              = {"tackle", "growl", "sand-attack"};
+
+        std::string row = catalogue_csv_row(4, 1, 2, info, "LivingDex", 5);
+        // Remove trailing newline.
+        if (!row.empty() && row.back() == '\n'){ row.pop_back(); }
+
+        // Split by comma (no embedded commas in this test's fields).
+        std::vector<std::string> cells;
+        std::stringstream ss(row);
+        std::string cell;
+        while (std::getline(ss, cell, ',')){ cells.push_back(cell); }
+
+        TEST_RESULT_EQUAL(cells.size(), static_cast<size_t>(28));
+        TEST_RESULT_COMPONENT_EQUAL(cells[0],  std::string("5"),      "box (1-indexed)");
+        TEST_RESULT_COMPONENT_EQUAL(cells[1],  std::string("2"),      "row (1-indexed)");
+        TEST_RESULT_COMPONENT_EQUAL(cells[2],  std::string("3"),      "col (1-indexed)");
+        TEST_RESULT_COMPONENT_EQUAL(cells[3],  std::string("133"),    "dex");
+        TEST_RESULT_COMPONENT_EQUAL(cells[4],  std::string("eevee"),  "species");
+        TEST_RESULT_COMPONENT_EQUAL(cells[5],  std::string("true"),   "shiny");
+        TEST_RESULT_COMPONENT_EQUAL(cells[9],  std::string("poke-ball"), "ball");
+        // moves joined by | (index 23)
+        TEST_RESULT_COMPONENT_EQUAL(cells[23], std::string("tackle|growl|sand-attack"), "moves");
+        TEST_RESULT_COMPONENT_EQUAL(cells[26], std::string("LivingDex"), "routed_category");
+        // dest_box is the raw 0-indexed int passed in (no +1)
+        TEST_RESULT_COMPONENT_EQUAL(cells[27], std::string("5"), "dest_box");
+    }
+
+    // Test 3: CSV escaping — OT name containing a comma.
+    {
+        PA info{};
+        info.dex_number = 25;
+        info.name_slug  = "pikachu";
+        info.ot_name    = "Ash, Jr.";  // contains a comma → must be quoted
+        info.gender     = Pokemon::StatsHuntGenderFilter::Any;
+
+        std::string row = catalogue_csv_row(0, 0, 0, info, "LivingDex", 0);
+        // The OT name field should appear quoted: "Ash, Jr."
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find("\"Ash, Jr.\"") != std::string::npos,
+            true,
+            "ot_name comma escaping"
+        );
+    }
+
+    // Test 4: CSV escaping — OT name containing a double-quote.
+    {
+        PA info{};
+        info.dex_number = 25;
+        info.name_slug  = "pikachu";
+        info.ot_name    = "Say \"hi\"";  // contains quotes → must be quoted+escaped
+        info.gender     = Pokemon::StatsHuntGenderFilter::Any;
+
+        std::string row = catalogue_csv_row(0, 0, 0, info, "LivingDex", 0);
+        // Should produce: "Say ""hi"""
+        TEST_RESULT_COMPONENT_EQUAL(
+            row.find("\"Say \"\"hi\"\"\"") != std::string::npos,
+            true,
+            "ot_name quote escaping"
+        );
+    }
 
     return 0;
 }

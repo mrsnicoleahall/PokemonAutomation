@@ -1629,6 +1629,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Programs/PokemonHome_BoxSorterLivingDex.h
     Source/PokemonHome/Programs/PokemonHome_BoxSorterMaster.cpp
     Source/PokemonHome/Programs/PokemonHome_BoxSorterMaster.h
+    Source/PokemonHome/Programs/PokemonHome_CatalogueCsv.cpp
+    Source/PokemonHome/Programs/PokemonHome_CatalogueCsv.h
     Source/PokemonHome/Programs/PokemonHome_GenerateNameOCR.cpp
     Source/PokemonHome/Programs/PokemonHome_GenerateNameOCR.h
     Source/PokemonHome/Programs/PokemonHome_MasterBoxLayout.cpp

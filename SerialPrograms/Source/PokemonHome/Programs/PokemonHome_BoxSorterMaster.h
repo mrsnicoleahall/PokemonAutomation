@@ -153,6 +153,7 @@ private:
     // Output / control options
     // -----------------------------------------------------------------------
     StringOption OUTPUT_FILE;
+    BooleanCheckBoxOption EXPORT_CSV;
     BooleanCheckBoxOption DRY_RUN;
     BooleanCheckBoxOption FRESH_START;
     EventNotificationsOption NOTIFICATIONS;
