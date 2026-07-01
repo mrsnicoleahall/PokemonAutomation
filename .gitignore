@@ -75,3 +75,7 @@ build_*/
 .cache/*
 Packages/*
 
+
+.aqtvenv/
+/Packages/
+/build_mac/

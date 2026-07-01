@@ -355,7 +355,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 4: Master layout config + loader
 
 **Files:**
-- Create: `Packages/SerialPrograms/Resources/PokemonHome/DexTemplates/master_box_layout.json`
+- Create: `Packages/Resources/PokemonHome/DexTemplates/master_box_layout.json`
 - Create: `SerialPrograms/Source/PokemonHome/Programs/PokemonHome_MasterBoxLayout.h`
 - Create: `SerialPrograms/Source/PokemonHome/Programs/PokemonHome_MasterBoxLayout.cpp`
 - Modify: `Tests/PokemonHome_Tests.*`, `Tests/TestMap.cpp`, `CMakeLists.txt`
@@ -424,7 +424,7 @@ only supplies HOME's six crop boxes + an OCR dictionary JSON.
 **Files:**
 - Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.h`
 - Create: `SerialPrograms/Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.cpp`
-- Create: `Packages/SerialPrograms/Resources/PokemonHome/IVCheckerOCR.json` (copy of `PokemonSV/IVCheckerOCR.json`)
+- Create: `Packages/Resources/PokemonHome/IVCheckerOCR.json` (copy of `Packages/Resources/PokemonSV/IVCheckerOCR.json`)
 - Modify: `CMakeLists.txt`
 
 **Interfaces:**
@@ -435,7 +435,7 @@ only supplies HOME's six crop boxes + an OCR dictionary JSON.
 
 - [ ] **Step 1: Copy `PokemonSV_IvJudgeReader.{h,cpp}`** to the HOME Inference folder; rename namespace `PokemonSV`→`PokemonHome`, the include guard, and the JSON path in `IV_READER()` to `"PokemonHome/IVCheckerOCR.json"`.
 
-- [ ] **Step 2: Copy the OCR dictionary** `Packages/SerialPrograms/Resources/PokemonSV/IVCheckerOCR.json` → `.../PokemonHome/IVCheckerOCR.json` (same rating tokens across all languages; identical for HOME). Commit note: this resource is submitted to the `Packages` repo separately.
+- [ ] **Step 2: Copy the OCR dictionary** `Packages/Resources/PokemonSV/IVCheckerOCR.json` → `Packages/Resources/PokemonHome/IVCheckerOCR.json` (same rating tokens across all languages; identical for HOME). Commit note: this resource is submitted to the `Packages` repo separately.
 
 - [ ] **Step 3: Seed the six crop boxes from SV** (HOME's hexagonal stat chart is nearly identical; fine-tuned in Task 6):
 
