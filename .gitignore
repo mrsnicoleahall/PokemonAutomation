@@ -77,3 +77,6 @@ Packages/
 .aqtvenv/
 /build_mac/
 aqtinstall.log
+
+# internal agent scratch (briefs/reports/ledgers/review diffs)
+.superpowers/
