@@ -105,7 +105,9 @@ Each catalogued Pokémon is routed by the first rule it matches:
    **type/gender/gmax signature does NOT match the base form** → Manual-Sort-Forms
    (it's an undetermined alt form).
 2. **Duplicate Shiny** → box 65 if a shiny already claims this species/form's dex slot.
-3. **Good Trades** → box 64 if OT ∉ {my OT names} and not shiny/legendary/mythical/event.
+3. **Good Trades** → box 64 if OT ∉ {my OT names} and not shiny / legendary / mythical /
+   ultra-beast / paradox / event. (Rare collectible species are never auto-filed as trade
+   fodder — they fall through to their collection box in step 8.)
 4. **Competitive** (box 61): `iv_perfect` (6×31).
 5. **Breeding** (box 62): `iv_best_count` in 3–5.
 6. **Breedjects** (box 63): `iv_best_count` in 1–2.

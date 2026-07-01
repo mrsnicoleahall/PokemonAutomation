@@ -250,7 +250,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 Routing order (first match wins), per spec §4:
 1. `!base_form_signature_matches` → `ManualForms`
 2. shiny && `species_slot_taken_by_shiny` → `DuplicateShiny`
-3. OT ∉ owner && not shiny/legend/myth/event → `GoodTrades`
+3. OT ∉ owner && not shiny/legendary/mythical/ultra-beast/paradox/event → `GoodTrades`
+   (rare collectible species fall through to their collection box in step 8)
 4. `iv_read && best_count >= competitive_min31` → `Competitive`
 5. `iv_read && best_count in breeding_range` → `Breeding`
 6. `iv_read && best_count in breedject_range` → `Breedject`
@@ -323,8 +324,9 @@ BoxCategory route(const CollectedPokemonInfo& p, const RouterConfig& cfg,
                   bool species_slot_taken_by_shiny, bool base_form_signature_matches){
     if (!base_form_signature_matches) return BoxCategory::ManualForms;
     if (p.shiny && species_slot_taken_by_shiny) return BoxCategory::DuplicateShiny;
-    bool legend = cfg.legendary->count(p.dex_number) || cfg.mythical->count(p.dex_number);
-    if (!is_owner_ot(p, cfg.owner_ot_names) && !p.shiny && !legend && !is_event(p))
+    bool rare_species = cfg.legendary->count(p.dex_number) || cfg.mythical->count(p.dex_number)
+                     || cfg.ultra_beast->count(p.dex_number) || cfg.paradox->count(p.dex_number);
+    if (!is_owner_ot(p, cfg.owner_ot_names) && !p.shiny && !rare_species && !is_event(p))
         return BoxCategory::GoodTrades;
     if (p.iv_read && p.iv_best_count >= cfg.competitive_min31) return BoxCategory::Competitive;
     if (p.iv_read && p.iv_best_count >= cfg.breeding_range.first && p.iv_best_count <= cfg.breeding_range.second) return BoxCategory::Breeding;
