@@ -94,3 +94,34 @@ alt form from the base species, so when you own both, the extra copy lands in th
 
 **Never auto-released / never overwritten:** Shiny · your OT · Legendary · Mythical ·
 Event · perfect-IV (6×31). The "Junk" box is a manual review bucket only.
+
+---
+
+## Manual-curated boxes (reference checklist)
+
+These boxes are defined by attributes the automation **cannot read from HOME**
+(ability, nature, moves, held item, egg group, language). The sorter never touches
+them by content — keep them by hand. Recorded here as your reference:
+
+### Box 60 — Utility ("expedition toolkit", 30 slots)
+- **Hatcher** — Flame Body / Magma Armor (halves egg steps).
+- **Catcher** — high level, False Swipe + a status move (Spore / Thunder Wave).
+- **Synchronizer** — Synchronize in every nature (e.g. a box of Ralts) to force wild natures.
+- **Farmers** — Pickup, to passively gather items.
+- **Money Maker** — holds Amulet Coin, ideally knows Pay Day.
+- **Evader / Flee Master** — Run Away, or holds Smoke Ball, for escaping encounters.
+
+### Boxes 62 (–63) — Breeding (Masuda + competitive IV)
+- **Ditto base** — foreign-language Dittos (Masuda shiny odds) + 5–6×31 IV Dittos in
+  various natures (Modest / Adamant / Timid / Jolly …).
+- **Egg Group Masters** — perfect-IV male parents by egg group (Field / Monster / Bug …)
+  to pass egg moves + stats.
+- **W.I.P. rows** — leave a section empty for sorting freshly hatched eggs.
+
+**What the sorter *can* still do here:** a Ditto with high Judge IVs is detectable by
+species + 31-count, so it will land in **Competitive** (6×31) or **Breeding** (3–5×31)
+by the normal IV rules — a flawless Ditto currently files under Competitive (it's a
+breeding tool; you may prefer to move it to Breeding by hand). Foreign-language Ditto is
+only fuzzily inferable (OT-name language ≠ your game) and is **not** auto-filed.
+Everything else in these two boxes is manual. (A future version could special-case
+Ditto → Breeding and read held items if HOME's UI exposes them.)
