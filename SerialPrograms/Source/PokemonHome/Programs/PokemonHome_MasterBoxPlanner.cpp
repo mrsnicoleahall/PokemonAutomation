@@ -136,6 +136,7 @@ static const char* category_name(BoxCategory cat){
         case BoxCategory::Paradox:       return "Paradox";
         case BoxCategory::ManualForms:   return "ManualForms";
         case BoxCategory::ManualOther:   return "ManualOther";
+        case BoxCategory::Utility:       return "Utility";
         default:                          return "Unknown";
     }
 }

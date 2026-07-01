@@ -273,6 +273,7 @@ const std::map<std::string, TestFunction> TEST_MAP = {
     {"PokemonHome_MasterBoxLayout", std::bind(image_void_detector_helper, test_pokemonHome_MasterBoxLayout, _1)},
     {"PokemonHome_MasterBoxRouter", std::bind(image_void_detector_helper, test_pokemonHome_MasterBoxRouter, _1)},
     {"PokemonHome_MasterPlanner", std::bind(image_void_detector_helper, test_pokemonHome_MasterPlanner, _1)},
+    {"PokemonHome_UtilityPlan", std::bind(image_void_detector_helper, test_pokemonHome_UtilityPlan, _1)},
     {"PokemonHome_UtilityRouting", std::bind(image_void_detector_helper, test_pokemonHome_UtilityRouting, _1)},
     {"PokemonSV_MapDetector", std::bind(image_words_detector_helper, test_pokemonSV_MapDetector, _1)},
     {"PokemonSV_PicnicDetector", std::bind(image_bool_detector_helper, test_pokemonSV_PicnicDetector, _1)},

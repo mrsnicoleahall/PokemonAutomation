@@ -383,6 +383,121 @@ int test_pokemonHome_MasterPlanner(const ImageViewRGB32& /*image*/){
     return 0;
 }
 
+int test_pokemonHome_UtilityPlan(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    using PA = Pokemon::CollectedPokemonInfo;
+
+    // ---------------------------------------------------------------------------
+    // Regression test: build_master_plan treats BoxCategory::Utility as a
+    // route-all bucket — multiple Utility mons coexist with NO single-slot
+    // contention.  Both mons must land inside the Utility box range; neither
+    // should be dropped to ManualOther.
+    //
+    // Layout (1-indexed box numbers):
+    //   LivingDex  1-35   Utility 60-60
+    //   DuplicateShiny 36  ManualOther 37
+    //
+    // Two Flame-Body mons placed in catalogue[0] and catalogue[1].
+    // RouterConfig has utility_rules = [{Ability, "flame-body"}].
+    // Both should route to BoxCategory::Utility.
+    //
+    // Utility box range: boxes 60-60 (1-indexed) = box 59 (0-indexed).
+    // Utility slot 0 → flat = 59*30 = 1770
+    // Utility slot 1 → flat = 59*30 + 1 = 1771
+    // Both mons start at flat=0 (catalogue[0]) and flat=1 (catalogue[1]).
+    // Both need to move into the Utility box → expect 2 moves, no BLOCKING warnings.
+    // ---------------------------------------------------------------------------
+
+    MasterBoxLayout layout;
+    layout.living_dex_start_box = 1;
+    layout.category_box_ranges[BoxCategory::LivingDex]      = {1,  35};
+    layout.category_box_ranges[BoxCategory::DuplicateShiny] = {36, 36};
+    layout.category_box_ranges[BoxCategory::ManualOther]    = {37, 37};
+    layout.category_box_ranges[BoxCategory::Competitive]    = {38, 40};
+    layout.category_box_ranges[BoxCategory::Breeding]       = {41, 43};
+    layout.category_box_ranges[BoxCategory::Breedject]      = {44, 45};
+    layout.category_box_ranges[BoxCategory::Events]         = {46, 46};
+    layout.category_box_ranges[BoxCategory::GoodTrades]     = {47, 48};
+    layout.category_box_ranges[BoxCategory::Legendary]      = {49, 50};
+    layout.category_box_ranges[BoxCategory::Mythical]       = {51, 51};
+    layout.category_box_ranges[BoxCategory::UltraBeast]     = {52, 52};
+    layout.category_box_ranges[BoxCategory::Paradox]        = {53, 53};
+    layout.category_box_ranges[BoxCategory::ManualForms]    = {54, 54};
+    layout.category_box_ranges[BoxCategory::Utility]        = {60, 60};  // 30-slot bucket
+
+    // RouterConfig: owner="nicole", utility_rules = [{Ability, "flame-body"}]
+    RouterConfig cfg;
+    cfg.owner_ot_names    = {"nicole"};
+    cfg.competitive_min31 = 6;
+    cfg.breeding_range    = {3, 5};
+    cfg.breedject_range   = {1, 2};
+    cfg.legendary         = nullptr;
+    cfg.mythical          = nullptr;
+    cfg.ultra_beast       = nullptr;
+    cfg.paradox           = nullptr;
+    cfg.utility_rules     = {{UtilityRule::Ability, "flame-body"}};
+
+    // Two Flame-Body mons placed at catalogue[0] and catalogue[1].
+    // (scan_start=0, so catalogue[0]=flat 0, catalogue[1]=flat 1)
+    std::vector<std::optional<PA>> catalogue(2, std::nullopt);
+
+    PA flamebody_a{};
+    flamebody_a.dex_number    = 126;   // Magmar — has Flame Body
+    flamebody_a.ot_name       = "nicole";
+    flamebody_a.iv_read       = true;
+    flamebody_a.iv_best_count = 0;
+    flamebody_a.ability_slug  = "flame-body";
+    catalogue[0] = flamebody_a;
+
+    PA flamebody_b{};
+    flamebody_b.dex_number    = 58;    // Growlithe — can have Flash Fire; we force ability here
+    flamebody_b.ot_name       = "nicole";
+    flamebody_b.iv_read       = true;
+    flamebody_b.iv_best_count = 0;
+    flamebody_b.ability_slug  = "flame-body";
+    catalogue[1] = flamebody_b;
+
+    // scan_start=0, scratch starts beyond layout boxes.
+    MasterPlan plan = build_master_plan(
+        catalogue, layout, cfg,
+        /*scan_start=*/0,
+        /*scratch_box_start=*/65,
+        /*scratch_box_count=*/3
+    );
+
+    // Assert 1: no BLOCKING warnings — both mons placed successfully.
+    bool has_blocking = false;
+    for (const auto& w : plan.warnings){
+        if (w.rfind("[BLOCKING]", 0) == 0){ has_blocking = true; }
+    }
+    TEST_RESULT_EQUAL(has_blocking, false);
+
+    // Assert 2: no overflow warnings (neither mon fell back to ManualOther).
+    bool has_overflow = false;
+    for (const auto& w : plan.warnings){
+        if (w.find("ManualOther") != std::string::npos){ has_overflow = true; }
+    }
+    TEST_RESULT_EQUAL(has_overflow, false);
+
+    // Assert 3: both mons land in the Utility box (0-indexed box 59).
+    // Verify via moves: both catalogue entries must move to box 59.
+    // catalogue[0] starts at (box=0,row=0,col=0), target=(box=59,slot=0)→(row=0,col=0)
+    // catalogue[1] starts at (box=0,row=0,col=1), target=(box=59,slot=1)→(row=0,col=1)
+    static const size_t UTILITY_BOX_0IDX = 59;  // 60-1
+    bool found_a_in_utility = false;
+    bool found_b_in_utility = false;
+    for (const auto& mv : plan.moves){
+        if (mv.to.box == UTILITY_BOX_0IDX){
+            if (mv.to.row == 0 && mv.to.column == 0) found_a_in_utility = true;
+            if (mv.to.row == 0 && mv.to.column == 1) found_b_in_utility = true;
+        }
+    }
+    TEST_RESULT_EQUAL(found_a_in_utility, true);
+    TEST_RESULT_EQUAL(found_b_in_utility, true);
+
+    return 0;
+}
+
 int test_pokemonHome_UtilityRouting(const ImageViewRGB32& /*image*/){
     using namespace NintendoSwitch::PokemonHome;
     using PA = Pokemon::CollectedPokemonInfo;
