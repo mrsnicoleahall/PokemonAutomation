@@ -98,7 +98,7 @@ Each catalogued Pokémon is routed by the first rule it matches:
    **type/gender/gmax signature does NOT match the base form** → Manual-Sort-Forms
    (it's an undetermined alt form).
 2. **Duplicate Shiny** → box 65 if a shiny already claims this species/form's dex slot.
-3. **Good Trades** → box 64 if OT ∉ {Nicole, Cole} and not shiny/legendary/mythical/event.
+3. **Good Trades** → box 64 if OT ∉ {my OT names} and not shiny/legendary/mythical/event.
 4. **Competitive** (box 61): `iv_perfect` (6×31).
 5. **Breeding** (box 62): `iv_best_count` in 3–5.
 6. **Breedjects** (box 63): `iv_best_count` in 1–2.
@@ -114,14 +114,23 @@ When multiple Pokémon qualify for the same Living-Dex/Form/Collection slot, the
 keeper is chosen by this readable priority (losers drop to the matching box above):
 
 1. Shiny
-2. OT Nicole or Cole
+2. OT is one of mine (see §4.3)
 3. Higher `iv_best_count`, then higher `iv_total_estimate`
 4. type-distinct rare form → event/stamp (origin mark / Cherish) → rarer ball
 
 ### 4.2 Auto-protection (never routed to Junk, never overwritten)
-Shiny · OT Nicole · OT Cole · Legendary · Mythical · Event (Cherish/GO/stamp) ·
+Shiny · OT is one of mine (§4.3) · Legendary · Mythical · Event (Cherish/GO/stamp) ·
 `iv_perfect`. Junk is **never auto-released** — the "Junk / Release Candidates" box
 is a manual review bucket only.
+
+### 4.3 My OT names
+The two owner OTs are **`Nicole`** and **`cole`** (lowercase c). Matching is
+case- and punctuation-insensitive: `normalize_utf32` lowercases and strips
+non-alphanumerics before an **exact full-string** compare, so `Cole`/`cole` match
+and `cole` never collides with `nicole`. The program exposes OT names as a
+**list/set option** (not the single-name field used by `BoxSorterLivingDex`), and a
+Pokémon counts as "mine" if its read OT exactly matches any entry after
+normalization.
 
 ---
 
