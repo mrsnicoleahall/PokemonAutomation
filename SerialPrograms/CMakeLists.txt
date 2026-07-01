@@ -109,6 +109,19 @@ if(WIN32 AND QT_DEPLOY_FILES)
         REQUIRED
     )
 else()
+    # On modern macOS the legacy AGL framework is a non-linkable stub: the
+    # AGL.framework directory still exists (so find_library "finds" it) but has no
+    # library image, so `ld` fails with "framework 'AGL' not found". Qt6's
+    # FindWrapOpenGL.cmake links AGL unconditionally on Apple. AGL is unused by modern
+    # code, so point the cache variable Qt probes at the still-present OpenGL framework;
+    # linking OpenGL in AGL's place is harmless and avoids the dead-stub link error.
+    if(APPLE)
+        find_library(_PA_OPENGL_FW NAMES OpenGL)
+        if(_PA_OPENGL_FW)
+            set(WrapOpenGL_AGL "${_PA_OPENGL_FW}" CACHE FILEPATH
+                "AGL is a non-linkable stub on this macOS; shimmed to OpenGL framework" FORCE)
+        endif()
+    endif()
     find_package(Qt${QT_MAJOR} COMPONENTS Widgets SerialPort Multimedia MultimediaWidgets REQUIRED)
 endif()
 
