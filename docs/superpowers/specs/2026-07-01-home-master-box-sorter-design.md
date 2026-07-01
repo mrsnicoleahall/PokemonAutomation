@@ -227,3 +227,17 @@ buffer + empties are ever exhausted mid-plan, the program stops with a clear
 ## 10. Out of scope (v1)
 Nature/EV/ribbon/mark/favorite reading; auto-release of Junk; distinguishing cosmetic
 forms that share a type; non-English game/Judge language. All can be added later.
+
+**Form routing (v1 limitation):** the catalogue does not yet compute a per-Pokémon
+"base-form signature," so `base_form_signature_matches` is always treated as true and
+the dedicated **ManualForms** box is not auto-populated. When a species has both a base
+form and an alt form owned, they contend for the single Living-Dex slot; the loser is
+routed to **ManualOther** (a manual-review box) rather than ManualForms. Nothing is lost
+or misfiled destructively — extra/alt copies land in a manual box for hand-sorting,
+consistent with the "route unresolvable → Manual Sort" principle. A future version can
+close this by loading the living-dex form template and comparing each read
+type/gmax/gender against the base entry to set `base_form_signature_matches` properly.
+
+**Scan alignment:** the plan indexes catalogue slots relative to the living-dex start
+box, so `SCAN_BOX_START` must equal the layout's `living_dex_start_box` (the program
+enforces this with a `UserSetupError`).
