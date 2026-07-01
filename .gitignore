@@ -79,3 +79,4 @@ Packages/*
 .aqtvenv/
 /Packages/
 /build_mac/
+aqtinstall.log
