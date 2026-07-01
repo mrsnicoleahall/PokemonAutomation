@@ -1603,6 +1603,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Inference/PokemonHome_ButtonDetector.h
     Source/PokemonHome/Inference/PokemonHome_GigantamaxDetector.cpp
     Source/PokemonHome/Inference/PokemonHome_GigantamaxDetector.h
+    Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.cpp
+    Source/PokemonHome/Inference/PokemonHome_IvJudgeReader.h
     Source/PokemonHome/Inference/PokemonHome_IvSummary.cpp
     Source/PokemonHome/Inference/PokemonHome_IvSummary.h
     Source/PokemonHome/Inference/PokemonHome_OriginMarkReader.cpp
