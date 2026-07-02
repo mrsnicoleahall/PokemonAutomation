@@ -126,7 +126,7 @@ crops in one run — IVs, ability/nature/held-item, and moves — so we tune eve
   - `home_catalogue_boxmap.txt` — labeled range legend for every box
   - `home_catalogue_dex_overqualified.csv` — Pokémon placed in the dex that also qualify
     for a higher category (for manual promotion review)
-  - `home_catalogue_slot_routes.csv` — routing summary in CSV form
+  - `home_catalogue.csv` — full catalogue CSV (one row per Pokémon; `category` and `dest_box` columns carry per-Pokémon routing)
 - [ ] Claude reviews the JSON and box-map with you: are dex numbers, shininess, OT, and
       IV counts correct? Does the routing look right (Shiny Dex vs Regular Dex, shiny-locked
       species skipped, buffers reserved, collection/trade/junk assignment)? Fix any reader

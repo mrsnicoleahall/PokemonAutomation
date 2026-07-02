@@ -159,9 +159,9 @@ step; it only asks and waits. If you decline or it can't proceed, it stops with 
 |---|---|---|
 | `<output>.json` | After each catalogued box | Full catalogue (species, shiny, OT, IVs, ability, moves, ball, …). |
 | `<output>_plan.json` | After catalogue, before moves | Per-Pokémon routing: target box, slot, category. |
-| `<output>_boxmap.txt` | At plan time (always, incl. dry-run) | Box-range legend: "Boxes 1–28: Shiny Dex", "Boxes 29–33: buffer", … — every box labeled. |
+| `<output>_boxmap.txt` | At plan time (always, incl. dry-run) | Box-range legend: "Boxes 1–35: Shiny Dex", "Boxes 36–40: buffer", "Boxes 41–75: Regular Dex", "Boxes 76–80: buffer", … — every box labeled. |
 | `<output>_dex_overqualified.csv` | At plan time (always, incl. dry-run) | Pokémon placed in a dex slot that also qualified for a higher category — for manual promotion review. |
-| `<output>_slot_routes.csv` | At plan time | Per-Pokémon routing in CSV form (category, dest_box included in v3). |
+| `<output>.csv` | At plan time (when EXPORT_CSV is on) | Full catalogue CSV — one row per Pokémon, including `category` and `dest_box` columns for per-Pokémon routing. |
 | `<output>_progress.json` | After each move | Resume checkpoint. |
 
 ---

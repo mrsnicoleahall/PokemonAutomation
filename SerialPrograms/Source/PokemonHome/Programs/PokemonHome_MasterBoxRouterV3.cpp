@@ -239,8 +239,21 @@ std::vector<RouteResultV3> route_all_v3(
     }
 
     // -------------------------------------------------------------------------
-    // Step 2: Process each group.
+    // Step 2: Per-group pass — elect the best non-shiny and best shiny within
+    // each SpeciesKey group.  Results are stored as provisional keeper
+    // assignments.  Step 3 enforces the cross-group constraint (exactly ONE
+    // RegularDex keeper and ONE ShinyDex keeper per dex_number).
     // -------------------------------------------------------------------------
+
+    // Track the provisional keeper index elected by each group so Step 3 can
+    // locate and potentially demote them.
+    // key: SpeciesKey → (provisional_best_nonshiny, provisional_best_shiny)
+    struct GroupBest {
+        size_t nonshiny = SIZE_MAX;   // catalogue index of provisional non-shiny keeper
+        size_t shiny    = SIZE_MAX;   // catalogue index of provisional shiny keeper
+    };
+    std::map<SpeciesKey, GroupBest> group_bests;
+
     for (auto& [key, indices] : groups){
         // Determine whether this group is a detectable variant.
         // A group is a variant if its key differs from the canonical key for
@@ -264,7 +277,7 @@ std::vector<RouteResultV3> route_all_v3(
             else                      nonshiny_indices.push_back(ci);
         }
 
-        // ---- Select best non-shiny copy (RegularDex keeper) ----------------
+        // ---- Select best non-shiny copy (provisional RegularDex keeper) -----
         // wins_slot(challenger, incumbent) returns true if challenger beats incumbent.
         // We pick the copy that beats all others.
         size_t best_nonshiny = SIZE_MAX;
@@ -276,7 +289,7 @@ std::vector<RouteResultV3> route_all_v3(
             }
         }
 
-        // ---- Select best shiny copy (ShinyDex keeper) ----------------------
+        // ---- Select best shiny copy (provisional ShinyDex keeper) -----------
         size_t best_shiny = SIZE_MAX;
         if (!shiny_locked){
             for (size_t ci : shiny_indices){
@@ -288,7 +301,7 @@ std::vector<RouteResultV3> route_all_v3(
             }
         }
 
-        // ---- Assign results -------------------------------------------------
+        // ---- Assign provisional results -------------------------------------
         // Non-shiny keeper.
         if (best_nonshiny != SIZE_MAX){
             const auto& p = *catalogue[best_nonshiny];
@@ -307,7 +320,7 @@ std::vector<RouteResultV3> route_all_v3(
             r.also_qualifies = compute_also_qualifies(p, layout, cfg, is_variant);
         }
 
-        // All non-shiny duplicates.
+        // All non-shiny duplicates within this group.
         for (size_t ci : nonshiny_indices){
             if (ci == best_nonshiny) continue;
             const auto& p = *catalogue[ci];
@@ -316,7 +329,7 @@ std::vector<RouteResultV3> route_all_v3(
             r.category = route_duplicate_impl(p, layout, cfg, is_variant);
         }
 
-        // All shiny duplicates (including shiny-locked shinies).
+        // All shiny duplicates within this group (including shiny-locked shinies).
         for (size_t ci : shiny_indices){
             if (ci == best_shiny) continue;
             const auto& p = *catalogue[ci];
@@ -325,9 +338,95 @@ std::vector<RouteResultV3> route_all_v3(
             r.category = route_duplicate_impl(p, layout, cfg, is_variant);
         }
 
-        // Shiny-locked shinies: best_shiny == SIZE_MAX but shiny_indices is non-empty.
-        // All of them go through route_duplicate_impl (as duplicates).
-        // Already handled by the loop above (ci == SIZE_MAX never matches any index).
+        // Shiny-locked shinies: best_shiny == SIZE_MAX but shiny_indices non-empty.
+        // All handled by the loop above (ci == SIZE_MAX never matches any index).
+
+        group_bests[key] = { best_nonshiny, best_shiny };
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 3: Cross-group dex dedup.
+    //
+    // Two or more SpeciesKey groups may share the same dex_number (e.g. base
+    // Normal-type Meowth and Psychic-type Galarian Meowth — same dex# 52, but
+    // different types → different SpeciesKeys).  The per-group pass above elected
+    // one provisional RegularDex keeper per group, so we can end up with multiple
+    // RegularDex keepers for the same dex# → collision when the planner maps them
+    // to the same fixed dex slot.
+    //
+    // Enforce: exactly ONE RegularDex keeper and ONE ShinyDex keeper per dex#,
+    // chosen by wins_slot across all per-group provisional winners.  Every other
+    // provisional winner is demoted to a Duplicate.  A demoted non-shiny that
+    // came from a variant group routes to ManualForms; one from the canonical
+    // group routes via route_duplicate_impl with is_variant=false.
+    // -------------------------------------------------------------------------
+
+    // Gather provisional winners by dex#.
+    // map<dex_number, vector<catalogue_index>>
+    std::map<uint16_t, std::vector<size_t>> dex_nonshiny_candidates;
+    std::map<uint16_t, std::vector<size_t>> dex_shiny_candidates;
+
+    for (auto& [key, gb] : group_bests){
+        if (gb.nonshiny != SIZE_MAX){
+            dex_nonshiny_candidates[key.dex_number].push_back(gb.nonshiny);
+        }
+        if (gb.shiny != SIZE_MAX){
+            dex_shiny_candidates[key.dex_number].push_back(gb.shiny);
+        }
+    }
+
+    // For each dex# with more than one provisional RegularDex candidate: pick the
+    // single best, demote the rest.
+    for (auto& [dex_no, candidates] : dex_nonshiny_candidates){
+        if (candidates.size() <= 1) continue;   // no collision — nothing to do
+
+        // Pick the single best across all candidates.
+        size_t winner = candidates[0];
+        for (size_t i = 1; i < candidates.size(); i++){
+            if (wins_slot(*catalogue[candidates[i]], *catalogue[winner], cfg)){
+                winner = candidates[i];
+            }
+        }
+
+        // Demote every loser.
+        for (size_t ci : candidates){
+            if (ci == winner) continue;
+            const auto& p = *catalogue[ci];
+            RouteResultV3& r = results[ci];
+            r.is_dex_keeper  = false;
+            r.also_qualifies.clear();
+            // Determine whether this copy came from a variant group.
+            const SpeciesKey loser_key = make_species_key(p);
+            auto canon_it = canonical_key.find(dex_no);
+            const bool loser_is_variant =
+                (canon_it != canonical_key.end()) && !(loser_key == canon_it->second);
+            r.category = route_duplicate_impl(p, layout, cfg, loser_is_variant);
+        }
+    }
+
+    // Same cross-group dedup for ShinyDex candidates.
+    for (auto& [dex_no, candidates] : dex_shiny_candidates){
+        if (candidates.size() <= 1) continue;
+
+        size_t winner = candidates[0];
+        for (size_t i = 1; i < candidates.size(); i++){
+            if (wins_slot(*catalogue[candidates[i]], *catalogue[winner], cfg)){
+                winner = candidates[i];
+            }
+        }
+
+        for (size_t ci : candidates){
+            if (ci == winner) continue;
+            const auto& p = *catalogue[ci];
+            RouteResultV3& r = results[ci];
+            r.is_dex_keeper  = false;
+            r.also_qualifies.clear();
+            const SpeciesKey loser_key = make_species_key(p);
+            auto canon_it = canonical_key.find(dex_no);
+            const bool loser_is_variant =
+                (canon_it != canonical_key.end()) && !(loser_key == canon_it->second);
+            r.category = route_duplicate_impl(p, layout, cfg, loser_is_variant);
+        }
     }
 
     return results;

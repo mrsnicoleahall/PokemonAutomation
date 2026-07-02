@@ -1462,7 +1462,20 @@ void BoxSorterMaster::program(
 
     } // end if (use_v3) / else
 
+    // -----------------------------------------------------------------------
+    // DRY_RUN — all output files have been written above.  Return now, before
+    // the blocking-warning release-prompt loop (which navigates the cursor and
+    // waits up to 5 minutes).  DRY_RUN must never move the cursor or interact
+    // with hardware beyond the catalogue pass.
+    // -----------------------------------------------------------------------
+    if (dry_run){
+        env.log("BoxSorterMaster: DRY RUN — stopping before execute pass.");
+        send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
+        return;
+    }
+
     // Check for blocking warnings before touching hardware.
+    // (Only reached when NOT in dry_run — the guard above has already returned.)
     for (const auto& w : plan_warnings){
         if (w.rfind("[BLOCKING]", 0) == 0){
             if (allow_prompt){
@@ -1623,12 +1636,6 @@ void BoxSorterMaster::program(
                 );
             }
         }
-    }
-
-    if (dry_run){
-        env.log("BoxSorterMaster: DRY RUN — stopping before execute pass.");
-        send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
-        return;
     }
 
     // -----------------------------------------------------------------------

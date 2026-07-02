@@ -1032,6 +1032,69 @@ int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& /*image*/){
         TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::Junk);
     }
 
+    // =========================================================================
+    // Test (g): cross-group dex# dedup — two SpeciesKey groups sharing the same
+    // dex_number must produce exactly ONE RegularDex keeper (not two).
+    //
+    // Scenario: dex# 52 (Meowth).  Two detectable variants:
+    //   slot 0 — Normal-type  (canonical, higher IVs)    → should become RegularDex keeper
+    //   slot 1 — Psychic-type (variant, lower IVs)       → duplicate → ManualForms
+    //
+    // Before the cross-group dedup fix both would have become RegularDex keepers
+    // (one per SpeciesKey group), colliding on the same planner dex slot.
+    // =========================================================================
+    {
+        PA base_meowth{};
+        base_meowth.dex_number        = 52;
+        base_meowth.shiny             = false;
+        base_meowth.ot_name           = "nicole";
+        base_meowth.iv_read           = true;
+        base_meowth.iv_best_count     = 4;
+        base_meowth.iv_total_estimate = 130;
+        base_meowth.primary_type      = Pokemon::PokemonType::NORMAL;
+        base_meowth.secondary_type    = Pokemon::PokemonType::NONE;
+
+        PA variant_meowth{};
+        variant_meowth.dex_number        = 52;
+        variant_meowth.shiny             = false;
+        variant_meowth.ot_name           = "nicole";
+        variant_meowth.iv_read           = true;
+        variant_meowth.iv_best_count     = 1;
+        variant_meowth.iv_total_estimate = 80;
+        variant_meowth.primary_type      = Pokemon::PokemonType::PSYCHIC;  // Galarian form
+        variant_meowth.secondary_type    = Pokemon::PokemonType::NONE;
+
+        std::vector<std::optional<PA>> cat = {base_meowth, variant_meowth};
+        auto results = route_all_v3(cat, layout, cfg);
+
+        TEST_RESULT_EQUAL(results.size(), (size_t)2);
+
+        // Exactly ONE copy must be a RegularDex keeper across both groups.
+        int keeper_count = 0;
+        for (const auto& r : results){
+            if (r.is_dex_keeper && r.category == BoxCategory::RegularDex){
+                keeper_count++;
+            }
+        }
+        TEST_RESULT_EQUAL(keeper_count, 1);
+
+        // Neither copy should get RegularDex AND ShinyDex simultaneously.
+        // (sanity — both are non-shiny)
+        for (const auto& r : results){
+            TEST_RESULT_EQUAL((int)(r.is_dex_keeper && r.category == BoxCategory::ShinyDex), 0);
+        }
+
+        // The base (Normal-type, higher IVs, slot 0) wins the dex slot — it is the
+        // canonical key (first SpeciesKey seen for dex 52) and has better IVs.
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, true);
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::RegularDex);
+
+        // The Psychic-type variant (slot 1) is demoted — it came from a variant group
+        // so it routes to ManualForms.
+        TEST_RESULT_EQUAL(results[1].is_dex_keeper, false);
+        TEST_RESULT_EQUAL((int)results[1].category, (int)BoxCategory::ManualForms);
+    }
+
     return 0;
 }
 
