@@ -14,6 +14,7 @@
 #include "Programs/PokemonHome_BoxSorterMaster.h"
 
 #include "Programs/PokemonHome_GenerateNameOCR.h"
+#include "Programs/PokemonHome_RenameBoxes.h"
 #include "Programs/TestPrograms/PokemonHome_CalibrateIVJudge.h"
 #include "Programs/TestPrograms/PokemonHome_ReadSummaryScreen.h"
 
@@ -50,6 +51,9 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
         ret.emplace_back(make_single_switch_program<PokemonHome::GenerateNameOCRData_Descriptor, PokemonHome::GenerateNameOCRData>());
         ret.emplace_back(make_single_switch_program<PokemonHome::CalibrateIVJudge_Descriptor, PokemonHome::CalibrateIVJudge>());
         ret.emplace_back(make_single_switch_program<PokemonHome::ReadSummaryScreen_Descriptor, PokemonHome::ReadSummaryScreen>());
+        // Scaffold: box-renamer.  Log-only until OSK navigation is calibrated
+        // interactively on the hardware rig.  Separate from the sorter.
+        ret.emplace_back(make_single_switch_program<PokemonHome::RenameBoxes_Descriptor, PokemonHome::RenameBoxes>());
     }
 
     return ret;

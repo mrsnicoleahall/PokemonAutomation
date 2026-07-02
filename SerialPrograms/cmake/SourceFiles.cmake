@@ -1647,6 +1647,8 @@ file(GLOB LIBRARY_SOURCES
     Source/PokemonHome/Programs/PokemonHome_MasterPlannerV3.h
     Source/PokemonHome/Programs/PokemonHome_PageSwap.cpp
     Source/PokemonHome/Programs/PokemonHome_PageSwap.h
+    Source/PokemonHome/Programs/PokemonHome_RenameBoxes.cpp
+    Source/PokemonHome/Programs/PokemonHome_RenameBoxes.h
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.cpp
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_CalibrateIVJudge.h
     Source/PokemonHome/Programs/TestPrograms/PokemonHome_ReadSummaryScreen.cpp
