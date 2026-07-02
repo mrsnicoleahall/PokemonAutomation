@@ -277,6 +277,7 @@ const std::map<std::string, TestFunction> TEST_MAP = {
     {"PokemonHome_UtilityRouting", std::bind(image_void_detector_helper, test_pokemonHome_UtilityRouting, _1)},
     {"PokemonHome_CatalogueCsv", std::bind(image_void_detector_helper, test_pokemonHome_CatalogueCsv, _1)},
     {"PokemonHome_LayoutV3", std::bind(image_void_detector_helper, test_pokemonHome_LayoutV3, _1)},
+    {"PokemonHome_DexSlots", std::bind(image_void_detector_helper, test_pokemonHome_DexSlots, _1)},
     {"PokemonSV_MapDetector", std::bind(image_words_detector_helper, test_pokemonSV_MapDetector, _1)},
     {"PokemonSV_PicnicDetector", std::bind(image_bool_detector_helper, test_pokemonSV_PicnicDetector, _1)},
     {"PokemonSV_TeraCardFinder", std::bind(image_bool_detector_helper, test_pokemonSV_TeraCardFinder, _1)},

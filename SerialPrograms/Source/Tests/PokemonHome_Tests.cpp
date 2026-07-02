@@ -11,6 +11,7 @@
 #include "PokemonHome/Inference/PokemonHome_ButtonDetector.h"
 #include "PokemonHome/Inference/PokemonHome_IvSummary.h"
 #include "PokemonHome/Programs/PokemonHome_CatalogueCsv.h"
+#include "PokemonHome/Programs/PokemonHome_DexSlots.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouter.h"
@@ -727,6 +728,19 @@ int test_pokemonHome_CatalogueCsv(const ImageViewRGB32& /*image*/){
         );
     }
 
+    return 0;
+}
+
+int test_pokemonHome_DexSlots(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    TEST_RESULT_EQUAL(regular_dex_slot(1), (size_t)0);
+    TEST_RESULT_EQUAL(regular_dex_slot(956), (size_t)955);   // gap-preserving: slot == dex-1
+    std::set<uint16_t> locked = {2, 4};                       // pretend 2 and 4 are shiny-locked
+    TEST_RESULT_EQUAL(shiny_dex_slot(1, locked).has_value(), true);
+    TEST_RESULT_EQUAL(*shiny_dex_slot(1, locked), (size_t)0);
+    TEST_RESULT_EQUAL(shiny_dex_slot(2, locked).has_value(), false); // locked → no slot
+    TEST_RESULT_EQUAL(*shiny_dex_slot(3, locked), (size_t)1);        // 1 then 3 → rank 1 (2 skipped)
+    TEST_RESULT_EQUAL(*shiny_dex_slot(5, locked), (size_t)2);        // 1,3,5 → rank 2 (2,4 skipped)
     return 0;
 }
 
