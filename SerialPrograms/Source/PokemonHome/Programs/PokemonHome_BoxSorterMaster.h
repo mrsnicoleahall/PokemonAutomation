@@ -19,7 +19,6 @@
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
 #include "PokemonHome_MasterBoxRouter.h"
-#include "PokemonHome_MasterPlannerV3.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{

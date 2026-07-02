@@ -66,6 +66,15 @@ struct MasterPlanV3 {
 
     // Box-map legend (same content as build_box_map).
     std::vector<BoxMapEntry> box_map;
+
+    // Per catalogue-entry routing result (parallel to the catalogue vector).
+    // Index ci → {category name string, dest_box (1-indexed absolute HOME box, or -1 if unplaceable)}.
+    // Empty-slot entries have category="" and dest_box=-1.
+    struct SlotRoute {
+        std::string category;  // e.g. "RegularDex", "ShinyDex", "Junk"
+        int dest_box = -1;     // 1-indexed absolute HOME box number (-1 = unplaceable or empty slot)
+    };
+    std::vector<SlotRoute> slot_routes;  // size == catalogue.size()
 };
 
 

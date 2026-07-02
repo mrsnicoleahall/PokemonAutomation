@@ -416,6 +416,24 @@ MasterPlanV3 build_master_plan_v3(
     }
 
     // -----------------------------------------------------------------------
+    // Phase 2b: populate slot_routes (parallel to catalogue).
+    // One entry per catalogue index: category name + 1-indexed dest box.
+    // Empty-slot entries and unplaceable entries get category="" / dest_box=-1.
+    // -----------------------------------------------------------------------
+    plan.slot_routes.resize(catalogue.size());
+    for (size_t ci = 0; ci < catalogue.size(); ++ci){
+        if (!catalogue[ci].has_value()) continue;        // empty slot → defaults
+        const RouteResultV3& r = routes[ci];
+        const size_t tgt = target_slot[ci];
+        plan.slot_routes[ci].category = category_name_v3(r.category);
+        if (tgt != SIZE_MAX){
+            // dest_box is 1-indexed: flat_to_cursor(tgt).box is 0-indexed.
+            plan.slot_routes[ci].dest_box = static_cast<int>(flat_to_cursor(tgt).box) + 1;
+        }
+        // else dest_box stays -1 (unplaceable)
+    }
+
+    // -----------------------------------------------------------------------
     // Phase 3: current_flat — where each catalogue entry currently lives.
     // -----------------------------------------------------------------------
     // Compute maximum flat index needed for the board.

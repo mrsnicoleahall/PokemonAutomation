@@ -169,3 +169,32 @@ Copied from `MasterPlanner/dummy.png`.
 ## Concerns
 
 None. The planner's generic design means any future `BoxCategory` added to `category_box_ranges` will automatically behave as a bucket without planner changes.
+
+---
+
+## Test-quality fixes (test-only, no production code changed)
+
+**Commit:** `9cf5576dd` — `test(PokemonHome): tighten MasterRouterV3 case-c assertion + fix misleading (d4) comment`
+
+### Fix 1 — case (c): tightened category assertion
+
+Added a concrete `TEST_RESULT_EQUAL` asserting `results[0].category == BoxCategory::Competitive`
+for the shiny-locked Victini (6×31, owner-OT "nicole"). The existing
+`is_dex_keeper == false` and `category != ShinyDex` assertions were preserved.
+The new assertion passed immediately — production routing was already correct.
+
+### Fix 2 — case (d4): corrected misleading comment
+
+Changed `// (d4) Plain low-value duplicate → BoxCategory::Junk` to
+`// (d4) Foreign-OT non-shiny duplicate (has trade value) → RegularTrades`
+to match the assertion (`BoxCategory::RegularTrades`).
+
+### Test result after fixes
+
+```
+10 tests passed
+---- exit code: 0 ----
+```
+
+`MasterRouterV3` passes with the tightened case-(c) assertion.
+Case-(c) observed category: **BoxCategory::Competitive** (correct).

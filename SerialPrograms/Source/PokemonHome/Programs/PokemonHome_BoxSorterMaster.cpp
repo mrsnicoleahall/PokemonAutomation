@@ -1096,6 +1096,12 @@ void BoxSorterMaster::program(
     std::vector<PlannedMove> plan_moves;
     std::vector<std::string> plan_warnings;
 
+    // layout_v3 is hoisted here so the blocking-warning release-prompt can access
+    // layout_v3.category_box_ranges[BoxCategory::Junk] to navigate to the correct boxes.
+    // layout_v3_loaded is true only when the v3 path ran successfully.
+    MasterBoxLayoutV3 layout_v3;
+    bool layout_v3_loaded = false;
+
     if (use_v3){
         // -------------------------------------------------------------------
         // v3 path: dual-dex layout, Shiny Dex + Regular Dex, split trades.
@@ -1119,10 +1125,9 @@ void BoxSorterMaster::program(
             RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout_v3.json";
         const std::string shiny_locked_path =
             RESOURCE_PATH() + "PokemonHome/shiny_locked.json";
-
-        MasterBoxLayoutV3 layout_v3;
         try{
             layout_v3 = load_master_box_layout_v3(layout_v3_path, shiny_locked_path);
+            layout_v3_loaded = true;
             env.log("BoxSorterMaster: Loaded master_box_layout_v3 from: " + layout_v3_path);
             env.log("BoxSorterMaster: Loaded shiny_locked from: " + shiny_locked_path +
                     " (" + std::to_string(layout_v3.shiny_locked.size()) + " species locked).");
@@ -1273,11 +1278,17 @@ void BoxSorterMaster::program(
                     if (!catalogue[ci].has_value()) continue;
                     BoxCursor cur(ci);
                     const size_t abs_box = scan_start + cur.box;
+                    std::string cat_name_v3;
+                    int dest_box_v3 = -1;
+                    if (ci < master_plan_v3.slot_routes.size()){
+                        cat_name_v3  = master_plan_v3.slot_routes[ci].category;
+                        dest_box_v3  = master_plan_v3.slot_routes[ci].dest_box;
+                    }
                     csv_out << catalogue_csv_row(
                         abs_box, cur.row, cur.column,
                         *catalogue[ci],
-                        /*category=*/"",
-                        /*dest_box=*/-1
+                        cat_name_v3,
+                        dest_box_v3
                     );
                 }
                 env.log("BoxSorterMaster: Catalogue CSV written to: " + csv_path);
@@ -1455,74 +1466,153 @@ void BoxSorterMaster::program(
     for (const auto& w : plan_warnings){
         if (w.rfind("[BLOCKING]", 0) == 0){
             if (allow_prompt){
-                // §6: Prompt Nicole to release the Junk box and wait for freed space.
-                // The program never releases automatically — it only asks and waits.
+                // §6: Prompt the user to release the Junk box and wait for freed space.
+                // The program NEVER releases any Pokémon automatically.
+                //
+                // Correctness property: we compute a BASELINE occupied-count for the
+                // Junk box range before prompting.  We then poll the Junk range and
+                // declare space freed ONLY when the live occupied-count is LESS than
+                // the baseline (meaning the user actually released something) AND at
+                // least one non-buffer empty slot now exists within the Junk range.
+                // Checking the current-view snapshot is insufficient and false-positives
+                // immediately (most boxes have empty slots); we navigate to the Junk
+                // range explicitly.
+                //
+                // Timeout constants are rig-tunable.
+                constexpr int poll_interval_ms = 10000;   // 10 seconds between polls — calibrate on rig
+                constexpr int max_wait_ms      = 300000;  // 5 minutes total — calibrate on rig
+
+                // -------------------------------------------------------------------
+                // Step A: compute Junk-range baseline occupied-count.
+                // layout_v3.category_box_ranges[BoxCategory::Junk] gives
+                // [first_1idx, last_1idx] (1-indexed, inclusive).
+                // -------------------------------------------------------------------
+                size_t junk_baseline = 0;
+                uint16_t junk_first_1idx = 0;
+                uint16_t junk_last_1idx  = 0;
+                std::string junk_range_str;
+                {
+                    auto junk_it = layout_v3_loaded
+                    ? layout_v3.category_box_ranges.find(BoxCategory::Junk)
+                    : layout_v3.category_box_ranges.end();
+                    if (junk_it != layout_v3.category_box_ranges.end()){
+                        junk_first_1idx = junk_it->second.first;
+                        junk_last_1idx  = junk_it->second.second;
+                        junk_range_str  = std::to_string(junk_first_1idx) +
+                                          "-" + std::to_string(junk_last_1idx);
+                        // Navigate to each Junk box and count occupied slots.
+                        for (uint16_t b = junk_first_1idx; b <= junk_last_1idx; ++b){
+                            const size_t abs_box_0idx = static_cast<size_t>(b - 1);
+                            BoxCursor dest(abs_box_0idx, 0, 0);
+                            nav_cursor = move_cursor_to(env, context, nav_cursor, dest, GAME_DELAY);
+                            junk_baseline += count_occupied_slots_in_box(env);
+                        }
+                        env.log(
+                            "BoxSorterMaster: Junk-range baseline occupied-count = " +
+                            std::to_string(junk_baseline) +
+                            " (boxes " + junk_range_str + ")"
+                        );
+                    }
+                    else{
+                        // No Junk box in layout — cannot check; log and fall through
+                        // with a zero baseline so any empty slot counts.
+                        junk_range_str = "(unknown — Junk not in layout)";
+                        env.log(
+                            "BoxSorterMaster: WARNING — Junk box not found in layout; "
+                            "release-prompt will accept any free slot.",
+                            COLOR_YELLOW
+                        );
+                    }
+                }
+
+                // -------------------------------------------------------------------
+                // Step B: prompt the user.
+                // -------------------------------------------------------------------
                 env.log(
-                    "BoxSorterMaster: [BLOCKING] plan warning detected — free space is insufficient.\n" +
+                    "BoxSorterMaster: [BLOCKING] plan warning — free space is insufficient.\n" +
                     w + "\n"
-                    "ACTION REQUIRED: Please release the Junk/Release box in " +
-                    STRING_POKEMON + " HOME to free space, then resume the program.\n"
-                    "Waiting up to 5 minutes for you to free space...",
+                    "ACTION REQUIRED: Release " + STRING_POKEMON + " from the Junk box(es) [" +
+                    junk_range_str + "] to free space, then the sort will continue.\n"
+                    "Waiting up to " + std::to_string(max_wait_ms / 60000) + " minutes...",
                     COLOR_YELLOW
                 );
                 send_program_status_notification(
                     env, NOTIFICATION_PROGRAM_FINISH,
-                    "BoxSorterMaster: Waiting for free space — please release the Junk box in HOME.\n"
-                    "The program will wait up to 5 minutes."
+                    "BoxSorterMaster: Waiting for free space — please release Pokémon from "
+                    "the Junk box(es) [" + junk_range_str + "] in HOME.\n"
+                    "The program will wait up to " +
+                    std::to_string(max_wait_ms / 60000) + " minutes."
                 );
 
-                // Poll for any free non-buffer slot (check live HOME view) up to 5 min.
-                // Strategy: wait in 10-second increments for up to 300 s (5 min), then
-                // re-scan occupancy of a representative box from the scan range looking for
-                // at least one empty slot that indicates freed space.
-                //
-                // NOTE: This is a best-effort check — we cannot know which specific box
-                // Nicole released, so we simply wait for the timeout and then let execution
-                // proceed.  If space is still insufficient, the execute loop will hit a slot
-                // already occupied and the post-move verification will catch it.
-                //
-                // On rig calibration: the timeout and polling interval can be adjusted here.
-                // A future version may re-scan a specific "junk" box range from the layout.
-                constexpr int poll_interval_ms = 10000;   // 10 seconds between checks
-                constexpr int max_wait_ms      = 300000;  // 5 minutes total
+                // -------------------------------------------------------------------
+                // Step C: poll the Junk range until occupancy drops below the baseline
+                //         AND at least one empty non-buffer slot exists there.
+                //         Only then do we declare space freed and proceed.
+                // -------------------------------------------------------------------
                 int waited_ms = 0;
                 bool space_freed = false;
                 while (waited_ms < max_wait_ms){
                     context.wait_for(Milliseconds(poll_interval_ms));
                     waited_ms += poll_interval_ms;
                     env.log(
-                        "BoxSorterMaster: Waiting for freed space... ("
+                        "BoxSorterMaster: Waiting for freed Junk space... ("
                         + std::to_string(waited_ms / 1000) + "s / "
                         + std::to_string(max_wait_ms / 1000) + "s)"
                     );
-                    // Check whether any non-buffer slot is now empty.
-                    // We check the current box view occupancy as a proxy.
-                    // (A proper check would navigate to the Junk box range, but that
-                    //  requires knowing its absolute box number here; we keep the
-                    //  check simple and rely on post-move verification as the safety net.)
-                    VideoSnapshot snap = env.console.video().snapshot();
-                    bool found_empty = false;
-                    for (size_t r = 0; r < BOX_ROWS && !found_empty; r++){
-                        for (size_t c = 0; c < BOX_COLS && !found_empty; c++){
-                            if (!slot_is_occupied(snap, r, c)){
-                                found_empty = true;
+
+                    // Navigate through Junk boxes and recount.
+                    size_t current_junk_occupied = 0;
+                    bool   found_empty_in_junk   = false;
+                    if (junk_first_1idx > 0 && junk_last_1idx >= junk_first_1idx){
+                        for (uint16_t b = junk_first_1idx; b <= junk_last_1idx; ++b){
+                            const size_t abs_box_0idx = static_cast<size_t>(b - 1);
+                            BoxCursor dest(abs_box_0idx, 0, 0);
+                            nav_cursor = move_cursor_to(env, context, nav_cursor, dest, GAME_DELAY);
+                            const size_t occ = count_occupied_slots_in_box(env);
+                            current_junk_occupied += occ;
+                            if (occ < BOX_ROWS * BOX_COLS){
+                                found_empty_in_junk = true;
                             }
                         }
                     }
-                    if (found_empty){
+                    else{
+                        // No Junk range known — fall back to checking current view.
+                        VideoSnapshot snap = env.console.video().snapshot();
+                        for (size_t r2 = 0; r2 < BOX_ROWS && !found_empty_in_junk; r2++){
+                            for (size_t c2 = 0; c2 < BOX_COLS && !found_empty_in_junk; c2++){
+                                if (!slot_is_occupied(snap, r2, c2)){
+                                    found_empty_in_junk = true;
+                                }
+                            }
+                        }
+                        current_junk_occupied = 0; // force "dropped from baseline"
+                    }
+
+                    // Correctness: occupancy must have dropped below the baseline
+                    // (user released something) AND an empty slot must exist there.
+                    if (current_junk_occupied < junk_baseline && found_empty_in_junk){
                         space_freed = true;
                         env.log(
-                            "BoxSorterMaster: Free slot detected — proceeding with execute pass.",
+                            "BoxSorterMaster: Junk space freed (occupied " +
+                            std::to_string(current_junk_occupied) + " < baseline " +
+                            std::to_string(junk_baseline) + ") — proceeding with execute pass.",
                             COLOR_GREEN
                         );
                         break;
                     }
+                    env.log(
+                        "BoxSorterMaster: Junk still full (occupied=" +
+                        std::to_string(current_junk_occupied) +
+                        ", baseline=" + std::to_string(junk_baseline) + ") — still waiting."
+                    );
                 }
                 if (!space_freed){
                     throw UserSetupError(
                         env.logger(),
-                        "BoxSorterMaster: Timed out waiting for freed space after 5 minutes. "
-                        "Please release the Junk box manually, then restart the program."
+                        "BoxSorterMaster: Timed out waiting for freed Junk space after " +
+                        std::to_string(max_wait_ms / 60000) + " minutes. "
+                        "Please release Pokémon from the Junk box(es) [" + junk_range_str +
+                        "] manually, then restart the program."
                     );
                 }
             }

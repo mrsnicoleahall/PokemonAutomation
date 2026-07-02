@@ -1217,6 +1217,69 @@ int test_pokemonHome_PlannerV3(const ImageViewRGB32& /*image*/){
 
         // box_map must be present and have 16 entries.
         TEST_RESULT_EQUAL(plan.box_map.size(), (size_t)16);
+
+        // =====================================================================
+        // Test (d): slot_routes must be populated for placed Pokémon.
+        // catalogue has 3 entries (indices 0, 1, 2) — all placed.
+        // slot_routes must be sized == catalogue.size() == 3.
+        // For each placed entry (index 0, 1, 2):
+        //   - category must be non-empty
+        //   - dest_box must be > 0 (1-indexed)
+        // (shiny_pika → ShinyDex, normal_pika → RegularDex, dup_shiny_pika → ShinyTrades)
+        // =====================================================================
+        TEST_RESULT_EQUAL(plan.slot_routes.size(), (size_t)3);
+
+        // shiny_pika (index 0): keeper → ShinyDex, dest_box in shiny dex region (1-35)
+        TEST_RESULT_COMPONENT_EQUAL(
+            !plan.slot_routes[0].category.empty(), true,
+            "slot_routes[0].category non-empty"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[0].dest_box > 0, true,
+            "slot_routes[0].dest_box > 0"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[0].category, std::string("ShinyDex"),
+            "slot_routes[0].category == ShinyDex"
+        );
+        // ShinyDex target: shiny_dex_slot(25,{})=24, dest_box = 1-indexed box 1 (24/30=0 → box 1)
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[0].dest_box, 1,
+            "slot_routes[0].dest_box == 1"
+        );
+
+        // normal_pika (index 1): keeper → RegularDex, dest_box in regular dex region (41-75)
+        TEST_RESULT_COMPONENT_EQUAL(
+            !plan.slot_routes[1].category.empty(), true,
+            "slot_routes[1].category non-empty"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[1].dest_box > 0, true,
+            "slot_routes[1].dest_box > 0"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[1].category, std::string("RegularDex"),
+            "slot_routes[1].category == RegularDex"
+        );
+        // RegularDex target: regular_dex_slot(25)=24, dest_box = 1-indexed box 41 (40*30+24 → abs_box=40 → box 41)
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[1].dest_box, 41,
+            "slot_routes[1].dest_box == 41"
+        );
+
+        // dup_shiny_pika (index 2): duplicate → ShinyTrades, dest_box in 99-100
+        TEST_RESULT_COMPONENT_EQUAL(
+            !plan.slot_routes[2].category.empty(), true,
+            "slot_routes[2].category non-empty"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[2].dest_box > 0, true,
+            "slot_routes[2].dest_box > 0"
+        );
+        TEST_RESULT_COMPONENT_EQUAL(
+            plan.slot_routes[2].category, std::string("ShinyTrades"),
+            "slot_routes[2].category == ShinyTrades"
+        );
     }
 
     return 0;
