@@ -39,6 +39,8 @@ int test_pokemonHome_LayoutV3(const ImageViewRGB32& image);
 
 int test_pokemonHome_DexSlots(const ImageViewRGB32& image);
 
+int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& image);
+
 }
 
 #endif

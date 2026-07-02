@@ -15,6 +15,7 @@
 #include "PokemonHome/Programs/PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouter.h"
+#include "PokemonHome/Programs/PokemonHome_MasterBoxRouterV3.h"
 #include "Pokemon/Inference/Pokemon_IvJudgeReader.h"
 #include "PokemonHome_Tests.h"
 #include "TestUtils.h"
@@ -741,6 +742,292 @@ int test_pokemonHome_DexSlots(const ImageViewRGB32& /*image*/){
     TEST_RESULT_EQUAL(shiny_dex_slot(2, locked).has_value(), false); // locked → no slot
     TEST_RESULT_EQUAL(*shiny_dex_slot(3, locked), (size_t)1);        // 1 then 3 → rank 1 (2 skipped)
     TEST_RESULT_EQUAL(*shiny_dex_slot(5, locked), (size_t)2);        // 1,3,5 → rank 2 (2,4 skipped)
+    return 0;
+}
+
+int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    using PA = Pokemon::CollectedPokemonInfo;
+
+    // -------------------------------------------------------------------------
+    // Build a minimal MasterBoxLayoutV3 and RouterConfig for all sub-tests.
+    // Species 144 = Legendary, 151 = Mythical, 793 = UltraBeast, 984 = Paradox.
+    // Species 494 (Victini) = shiny-locked.
+    // -------------------------------------------------------------------------
+    MasterBoxLayoutV3 layout;
+    layout.shiny_dex_start         = 1;
+    layout.regular_dex_start       = 41;
+    layout.shiny_dex_buffer_boxes  = 5;
+    layout.regular_dex_buffer_boxes = 5;
+    layout.legendary               = {144, 145, 146};
+    layout.mythical                = {151};
+    layout.ultra_beast             = {793};
+    layout.paradox                 = {984};
+    layout.shiny_locked            = {494};  // Victini — definitively shiny-locked
+    // Category box ranges (1-indexed, minimal set for routing).
+    layout.category_box_ranges[BoxCategory::Legendary]    = {81, 81};
+    layout.category_box_ranges[BoxCategory::Mythical]     = {82, 82};
+    layout.category_box_ranges[BoxCategory::UltraBeast]   = {83, 83};
+    layout.category_box_ranges[BoxCategory::Paradox]      = {84, 84};
+    layout.category_box_ranges[BoxCategory::Events]       = {85, 85};
+    layout.category_box_ranges[BoxCategory::ManualForms]  = {86, 86};
+    layout.category_box_ranges[BoxCategory::Utility]      = {87, 87};
+    layout.category_box_ranges[BoxCategory::Breeding]     = {88, 88};
+    layout.category_box_ranges[BoxCategory::Competitive]  = {89, 89};
+    layout.category_box_ranges[BoxCategory::ShinyTrades]  = {90, 90};
+    layout.category_box_ranges[BoxCategory::RegularTrades]= {91, 91};
+    layout.category_box_ranges[BoxCategory::Junk]         = {92, 92};
+
+    RouterConfig cfg;
+    cfg.owner_ot_names    = {"nicole", "cole"};
+    cfg.competitive_min31 = 6;
+    cfg.breeding_range    = {3, 5};
+    cfg.breedject_range   = {1, 2};
+    cfg.legendary         = &layout.legendary;
+    cfg.mythical          = &layout.mythical;
+    cfg.ultra_beast       = &layout.ultra_beast;
+    cfg.paradox           = &layout.paradox;
+    cfg.utility_rules     = {{UtilityRule::Ability, "flame-body"}};
+
+    // =========================================================================
+    // Test (a): two same-species non-shiny Bulbasaur.
+    // Higher IV copy → RegularDexSlot keeper; lower IV → Duplicate → RegularTrades.
+    // =========================================================================
+    {
+        PA hi{};
+        hi.dex_number       = 1;
+        hi.shiny            = false;
+        hi.ot_name          = "nicole";
+        hi.iv_read          = true;
+        hi.iv_best_count    = 4;
+        hi.iv_total_estimate = 140;
+        hi.primary_type     = Pokemon::PokemonType::GRASS;
+        hi.secondary_type   = Pokemon::PokemonType::POISON;
+
+        PA lo{};
+        lo.dex_number       = 1;
+        lo.shiny            = false;
+        lo.ot_name          = "ash";          // foreign OT, lower IVs
+        lo.iv_read          = true;
+        lo.iv_best_count    = 0;
+        lo.iv_total_estimate = 50;
+        lo.primary_type     = Pokemon::PokemonType::GRASS;
+        lo.secondary_type   = Pokemon::PokemonType::POISON;
+
+        std::vector<std::optional<PA>> cat = {hi, lo};
+        auto results = route_all_v3(cat, layout, cfg);
+
+        TEST_RESULT_EQUAL(results.size(), (size_t)2);
+
+        // hi is the better copy — it should be the RegularDexSlot keeper.
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, true);
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::RegularDex);
+
+        // lo is the duplicate — foreign OT, no IVs → RegularTrades.
+        TEST_RESULT_EQUAL(results[1].is_dex_keeper, false);
+        TEST_RESULT_EQUAL((int)results[1].category, (int)BoxCategory::RegularTrades);
+    }
+
+    // =========================================================================
+    // Test (b): two same-species shiny Bulbasaur.
+    // Best shiny → ShinyDexSlot keeper; other shiny → ShinyTrades.
+    // =========================================================================
+    {
+        PA s1{};
+        s1.dex_number       = 1;
+        s1.shiny            = true;
+        s1.ot_name          = "nicole";
+        s1.iv_read          = true;
+        s1.iv_best_count    = 5;
+        s1.iv_total_estimate = 150;
+        s1.primary_type     = Pokemon::PokemonType::GRASS;
+        s1.secondary_type   = Pokemon::PokemonType::POISON;
+
+        PA s2{};
+        s2.dex_number       = 1;
+        s2.shiny            = true;
+        s2.ot_name          = "ash";
+        s2.iv_read          = true;
+        s2.iv_best_count    = 0;
+        s2.iv_total_estimate = 30;
+        s2.primary_type     = Pokemon::PokemonType::GRASS;
+        s2.secondary_type   = Pokemon::PokemonType::POISON;
+
+        std::vector<std::optional<PA>> cat = {s1, s2};
+        auto results = route_all_v3(cat, layout, cfg);
+
+        // s1 (owner, better IVs) wins the ShinyDex slot.
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, true);
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::ShinyDex);
+
+        // s2 is a shiny duplicate → ShinyTrades.
+        TEST_RESULT_EQUAL(results[1].is_dex_keeper, false);
+        TEST_RESULT_EQUAL((int)results[1].category, (int)BoxCategory::ShinyTrades);
+    }
+
+    // =========================================================================
+    // Test (c): shiny of a shiny-locked species (Victini, dex 494).
+    // Must NOT become a ShinyDex keeper — routes as duplicate instead.
+    // =========================================================================
+    {
+        PA locked_shiny{};
+        locked_shiny.dex_number   = 494;   // Victini — shiny-locked
+        locked_shiny.shiny        = true;
+        locked_shiny.ot_name      = "nicole";
+        locked_shiny.iv_read      = true;
+        locked_shiny.iv_best_count = 6;
+        locked_shiny.iv_perfect   = true;
+        locked_shiny.primary_type = Pokemon::PokemonType::PSYCHIC;
+        locked_shiny.secondary_type = Pokemon::PokemonType::FIRE;
+
+        std::vector<std::optional<PA>> cat = {locked_shiny};
+        auto results = route_all_v3(cat, layout, cfg);
+
+        // Shiny-locked species cannot fill a ShinyDex slot — must not be keeper.
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, false);
+        // It should NOT be assigned ShinyDex category.
+        TEST_RESULT_EQUAL((int)results[0].category != (int)BoxCategory::ShinyDex, true);
+    }
+
+    // =========================================================================
+    // Test (d): route_duplicate_v3 priority chain.
+    // =========================================================================
+    {
+        // (d1) Duplicate Legendary (dex 144 = Articuno) → BoxCategory::Legendary
+        PA leg_dup{};
+        leg_dup.dex_number  = 144;
+        leg_dup.shiny       = false;
+        leg_dup.ot_name     = "nicole";
+        leg_dup.iv_read     = true;
+        leg_dup.iv_best_count = 0;
+        leg_dup.primary_type = Pokemon::PokemonType::ICE;
+        leg_dup.secondary_type = Pokemon::PokemonType::FLYING;
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(leg_dup, layout, cfg),
+            (int)BoxCategory::Legendary
+        );
+
+        // (d2) 6×31 duplicate → BoxCategory::Competitive
+        PA comp_dup{};
+        comp_dup.dex_number   = 1;
+        comp_dup.shiny        = false;
+        comp_dup.ot_name      = "ash";
+        comp_dup.iv_read      = true;
+        comp_dup.iv_best_count = 6;
+        comp_dup.iv_perfect   = true;
+        comp_dup.primary_type = Pokemon::PokemonType::GRASS;
+        comp_dup.secondary_type = Pokemon::PokemonType::POISON;
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(comp_dup, layout, cfg),
+            (int)BoxCategory::Competitive
+        );
+
+        // (d3) Shiny duplicate (non-legendary, non-perfect) → BoxCategory::ShinyTrades
+        PA shiny_dup{};
+        shiny_dup.dex_number   = 1;
+        shiny_dup.shiny        = true;
+        shiny_dup.ot_name      = "ash";
+        shiny_dup.iv_read      = true;
+        shiny_dup.iv_best_count = 0;
+        shiny_dup.primary_type = Pokemon::PokemonType::GRASS;
+        shiny_dup.secondary_type = Pokemon::PokemonType::POISON;
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(shiny_dup, layout, cfg),
+            (int)BoxCategory::ShinyTrades
+        );
+
+        // (d4) Plain low-value duplicate → BoxCategory::Junk
+        PA junk_dup{};
+        junk_dup.dex_number   = 1;
+        junk_dup.shiny        = false;
+        junk_dup.ot_name      = "ash";         // foreign OT
+        junk_dup.iv_read      = true;
+        junk_dup.iv_best_count = 0;            // no IVs
+        junk_dup.primary_type = Pokemon::PokemonType::GRASS;
+        junk_dup.secondary_type = Pokemon::PokemonType::POISON;
+        // Not legendary/mythical/event/shiny/utility/competitive/breeding → Junk
+        // Note: RegularTrades applies when foreign OT — test that the route picks
+        // between RegularTrades and Junk consistently with v3 spec.
+        // Foreign OT with no trade value → RegularTrades per spec (foreign OT alone
+        // qualifies as trade value).
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(junk_dup, layout, cfg),
+            (int)BoxCategory::RegularTrades   // foreign OT = trade value → RegularTrades
+        );
+
+        // (d5) Owner-OT, zero IVs, no special flags → Junk (protected from Junk only
+        // if shiny/legendary/event/perfect — owner-OT plain mon goes to Junk)
+        PA owner_junk{};
+        owner_junk.dex_number    = 1;
+        owner_junk.shiny         = false;
+        owner_junk.ot_name       = "nicole";   // owner OT
+        owner_junk.iv_read       = true;
+        owner_junk.iv_best_count = 0;
+        owner_junk.primary_type  = Pokemon::PokemonType::GRASS;
+        owner_junk.secondary_type = Pokemon::PokemonType::POISON;
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(owner_junk, layout, cfg),
+            (int)BoxCategory::Junk
+        );
+
+        // (d6) Utility match → BoxCategory::Utility (before Competitive)
+        PA util_dup{};
+        util_dup.dex_number    = 58;
+        util_dup.shiny         = false;
+        util_dup.ot_name       = "nicole";
+        util_dup.iv_read       = true;
+        util_dup.iv_best_count = 0;
+        util_dup.ability_slug  = "flame-body";
+        util_dup.primary_type  = Pokemon::PokemonType::FIRE;
+        TEST_RESULT_EQUAL(
+            (int)route_duplicate_v3(util_dup, layout, cfg),
+            (int)BoxCategory::Utility
+        );
+    }
+
+    // =========================================================================
+    // Test (e): a dex keeper that is 6×31 has "Competitive" in also_qualifies.
+    // =========================================================================
+    {
+        PA perfect{};
+        perfect.dex_number       = 1;
+        perfect.shiny            = false;
+        perfect.ot_name          = "nicole";
+        perfect.iv_read          = true;
+        perfect.iv_best_count    = 6;
+        perfect.iv_perfect       = true;
+        perfect.iv_total_estimate = 186;
+        perfect.primary_type     = Pokemon::PokemonType::GRASS;
+        perfect.secondary_type   = Pokemon::PokemonType::POISON;
+
+        // Only one copy → sole keeper.
+        std::vector<std::optional<PA>> cat = {perfect};
+        auto results = route_all_v3(cat, layout, cfg);
+
+        TEST_RESULT_EQUAL(results.size(), (size_t)1);
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, true);
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::RegularDex);
+
+        // also_qualifies must contain "Competitive".
+        bool has_competitive = false;
+        for (const auto& q : results[0].also_qualifies){
+            if (q == "Competitive") has_competitive = true;
+        }
+        TEST_RESULT_EQUAL(has_competitive, true);
+    }
+
+    // =========================================================================
+    // Test (f): empty slot → default RouteResultV3 (category Junk, not keeper).
+    // =========================================================================
+    {
+        std::vector<std::optional<PA>> cat = {std::nullopt};
+        auto results = route_all_v3(cat, layout, cfg);
+        TEST_RESULT_EQUAL(results.size(), (size_t)1);
+        // Empty slots get a default result — category is Junk and is_dex_keeper is false.
+        TEST_RESULT_EQUAL(results[0].is_dex_keeper, false);
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::Junk);
+    }
+
     return 0;
 }
 
