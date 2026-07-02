@@ -35,6 +35,8 @@ int test_pokemonHome_UtilityRouting(const ImageViewRGB32& image);
 
 int test_pokemonHome_CatalogueCsv(const ImageViewRGB32& image);
 
+int test_pokemonHome_LayoutV3(const ImageViewRGB32& image);
+
 }
 
 #endif

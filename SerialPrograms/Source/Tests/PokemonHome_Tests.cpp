@@ -730,4 +730,28 @@ int test_pokemonHome_CatalogueCsv(const ImageViewRGB32& /*image*/){
     return 0;
 }
 
+int test_pokemonHome_LayoutV3(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+
+    const std::string layout_path      = RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout_v3.json";
+    const std::string shiny_lock_path  = RESOURCE_PATH() + "PokemonHome/shiny_locked.json";
+
+    MasterBoxLayoutV3 L = load_master_box_layout_v3(layout_path, shiny_lock_path);
+
+    // shiny_dex_start must be 1 (first physical box).
+    TEST_RESULT_EQUAL(L.shiny_dex_start, static_cast<uint16_t>(1));
+
+    // regular_dex_start must be strictly after shiny_dex_start.
+    TEST_RESULT_EQUAL(L.regular_dex_start > L.shiny_dex_start, true);
+
+    // category_box_ranges must contain BoxCategory::Junk.
+    TEST_RESULT_EQUAL(L.category_box_ranges.count(BoxCategory::Junk) > 0, true);
+
+    // shiny_locked must be non-empty and contain Victini (494) — definitively locked.
+    TEST_RESULT_EQUAL(L.shiny_locked.empty(), false);
+    TEST_RESULT_EQUAL(L.shiny_locked.count(494) > 0, true);
+
+    return 0;
+}
+
 }

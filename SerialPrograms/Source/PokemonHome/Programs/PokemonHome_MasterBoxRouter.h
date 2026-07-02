@@ -41,7 +41,13 @@ enum class BoxCategory{
     Paradox,
     ManualForms,
     ManualOther,
-    Utility,   // v2: any mon matched by a UtilityRule
+    Utility,        // v2: any mon matched by a UtilityRule
+    // v3 additions
+    ShinyDex,       // shiny copy of each shiny-able species in National Dex order
+    RegularDex,     // best non-shiny of each species in National Dex order
+    ShinyTrades,    // shiny duplicates beyond the single Shiny Dex slot
+    RegularTrades,  // non-shiny duplicates with trade value
+    Junk,           // low-value duplicates (review bucket — never auto-released)
 };
 
 

@@ -137,6 +137,12 @@ static const char* category_name(BoxCategory cat){
         case BoxCategory::ManualForms:   return "ManualForms";
         case BoxCategory::ManualOther:   return "ManualOther";
         case BoxCategory::Utility:       return "Utility";
+        // v3 additions
+        case BoxCategory::ShinyDex:      return "ShinyDex";
+        case BoxCategory::RegularDex:    return "RegularDex";
+        case BoxCategory::ShinyTrades:   return "ShinyTrades";
+        case BoxCategory::RegularTrades: return "RegularTrades";
+        case BoxCategory::Junk:          return "Junk";
         default:                          return "Unknown";
     }
 }
