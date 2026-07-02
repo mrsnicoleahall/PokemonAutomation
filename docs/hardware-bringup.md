@@ -113,16 +113,28 @@ crops in one run — IVs, ability/nature/held-item, and moves — so we tune eve
 
 ---
 
-## Phase 5 — Dry Run (reads only, moves NOTHING)
+## Phase 5 — v3 Dry Run (reads only, moves NOTHING)
 
 - [ ] Open the **Master Box Sorter** program.
 - [ ] Set options with Claude: `SCAN_BOX_START` = your living-dex start box (must match the
       layout's start), `SCAN_BOX_COUNT` = start with **1 box** for the first test,
       `OWNER_OT_NAMES` = `nicole, cole`, `READ_IVS` = on, `IV_LANGUAGE` = English,
-      **`DRY_RUN` = ON**.
-- [ ] Run it. It catalogues that box and writes `home_catalogue.json` + `home_catalogue_plan.json`.
-- [ ] Claude reviews the JSON with you: are dex numbers, shininess, OT, and IV counts correct?
-      Does the plan route things sensibly? Fix any reader issues before proceeding.
+      `USE_V3_LAYOUT` = on (default), **`DRY_RUN` = ON**.
+- [ ] Run it. It catalogues that box and writes:
+  - `home_catalogue.json` — full per-Pokémon catalogue
+  - `home_catalogue_plan.json` — per-Pokémon routing (category + dest_box)
+  - `home_catalogue_boxmap.txt` — labeled range legend for every box
+  - `home_catalogue_dex_overqualified.csv` — Pokémon placed in the dex that also qualify
+    for a higher category (for manual promotion review)
+  - `home_catalogue_slot_routes.csv` — routing summary in CSV form
+- [ ] Claude reviews the JSON and box-map with you: are dex numbers, shininess, OT, and
+      IV counts correct? Does the routing look right (Shiny Dex vs Regular Dex, shiny-locked
+      species skipped, buffers reserved, collection/trade/junk assignment)? Fix any reader
+      issues before proceeding.
+
+> **Box renaming is a separate later step.** After a successful sort run, we calibrate
+> `PokemonHome:RenameBoxes` together on the rig — rename one box, verify it, then batch.
+> It is never part of the Dry Run or the sort itself.
 
 ---
 
@@ -142,8 +154,10 @@ crops in one run — IVs, ability/nature/held-item, and moves — so we tune eve
   stops and asks for help. That's by design.
 - Stuck or unsure? Stop and ask Claude. We go one step at a time.
 
-## Known v1 limits (so nothing surprises you)
-- Ability / moves / held item aren't read **yet** (they're on-screen; a planned v2 will read
-  them to auto-fill the Utility/Breeding boxes). For now those boxes are hand-curated —
-  see `docs/BoxSorterMaster-usage.md`.
-- Alternate forms sharing a Dex # aren't separated; extra copies land in a manual box.
+## Known limits (v3)
+- **Shiny-locked list** is best-effort — a mis-listed species gets a wrong gap or wrong dex slot.
+- **Cosmetic forms** (Unown letters, Vivillon patterns) are not distinguishable; type/gmax/gender-
+  distinct forms ARE auto-detected.
+- **EV / ribbon / mark / favorite / egg group** — never shown in HOME; always manual.
+- HOME Premium required for IV reads.
+- See `docs/BoxSorterMaster-usage.md` for full option and output documentation.
