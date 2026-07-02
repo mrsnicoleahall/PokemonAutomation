@@ -138,19 +138,21 @@ Two-pass, resumable via JSON checkpoints; execute-resume re-derives from live st
   "Boxes 1–35: Shiny Dex", "Boxes 36–40: (buffer)", "Box 71: Shiny Trades".
 - **Full catalogue CSV** (existing) + **overqualified-dex CSV** (§3a).
 
-### 9a. Automated in-HOME box renaming (IN SCOPE — Nicole doesn't want to rename ~200 boxes by hand)
-New option `RENAME_BOXES` (default **on**). The program navigates HOME's **box-name edit field**
-for each box in the sorted range and types a clear label via the on-screen keyboard — e.g.
-`Shiny Dex 01`, `Regular Dex 12`, `Legendary`, `Shiny Trades`, `Junk`. Implementation:
-- A new `PokemonHome_BoxRenamer` inference/routine: open the box-name editor, clear the existing
-  name, type the target label using the OSK (reuse the project's on-screen-keyboard text-entry
-  helper if one exists — the codebase has keyboard-entry code for other games; otherwise a
-  char-navigation routine over the HOME OSK layout), confirm, advance to the next box.
-- **Highest-risk / not runtime-testable here** — the OSK navigation + per-key timing are
-  calibrated on the rig (a dedicated calibration/dry-run: rename ONE box, verify, then batch).
-  Labels come from the same box-map the legend uses, so the on-screen names match the legend.
-- Runs as its own pass (after sorting, or standalone) so a rename hiccup never affects the sort;
-  a failed rename logs + continues to the next box (never aborts, never touches Pokémon).
+### 9a. Automated in-HOME box renaming — SEPARATE, OPTIONAL, POST-SORT (built interactively)
+This is a **standalone program** (`PokemonHome:RenameBoxes`), **not part of the sort run** and not
+a sort option. Nicole runs it **after** sorting is complete, only if she wants it. It reads the
+same box-map the legend uses and types each box's label into HOME's box-name field via the
+on-screen keyboard (e.g. `Shiny Dex 01`, `Regular Dex 12`, `Legendary`, `Junk`).
+
+**Development approach: interactive / collaborative on the rig, NOT built blind.** OSK text entry
+through the microcontroller is the riskiest, untestable-in-this-environment piece. So v3 only
+**scaffolds** it — the program structure + label generation from the box-map + a
+`start_box`/`count` range so we can rename ONE box first — and the actual on-screen-keyboard
+navigation + per-key timing are calibrated **together with Nicole, live**, once the hardware is
+set up (rename one box → verify → refine → batch). It runs as its own pass so a rename hiccup
+never affects the sort; it never touches Pokémon; a failed rename logs and continues.
+Sequencing: the core v3 sort is built and validated FIRST; box-renaming is a follow-up we do
+together after a successful sort.
 
 ---
 
