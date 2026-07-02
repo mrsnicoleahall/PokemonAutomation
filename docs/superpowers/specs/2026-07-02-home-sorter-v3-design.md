@@ -16,12 +16,13 @@ release/overwrite without asking, resumable, IV/ability/moves reading).
 In order, 30 slots/box. All boxes are enumerated in a **box-map legend** the program emits
 (see §9) so every box is clearly labeled.
 
-1. **Regular Dex** — every species (base forms) in National Dex order, **gaps left for species
+1. **Shiny Dex** (FIRST) — shiny copy of each species in National Dex order, **skipping
+   shiny-locked species** (NO gap for a species that can't be shiny), gaps left for shiny-able
+   species not yet owned.
+2. **+5 empty boxes** (buffer after the Shiny Dex — 5 minimum).
+3. **Regular Dex** — every species (base forms) in National Dex order, **gaps left for species
    not owned** (e.g. missing 955 → its slot stays empty between 954 and 956). ~35 boxes (1025 species).
-2. **+10 empty boxes** (buffer after the Regular Dex).
-3. **Shiny Dex** — shiny copy of each species in Dex order, **skipping shiny-locked species**
-   (no gap for a species that can't be shiny), gaps left for shiny-able species not yet owned.
-4. **+10 empty boxes** (buffer after the Shiny Dex).
+4. **+5 empty boxes** (buffer after the Regular Dex — 5 minimum).
 5. **Legendary** · 6. **Mythical** · 7. **Ultra Beasts** · 8. **Paradox** · 9. **Events**
    (collection boxes, right after the dexes, before Forms).
 10. **Forms / Variants / Regional Spins**
@@ -85,16 +86,18 @@ box / Utility / Breeding / Competitive is recorded to **`<output>_dex_overqualif
 
 ## 4. The two dexes in detail
 
-- **Regular Dex:** slots for all 1025 base species in Dex order; unowned → empty gap. A species is
-  placed by its best non-shiny copy (or its best copy overall if she owns only shinies of it — a
-  shiny still counts for the regular dex slot if that's the only copy? **No:** the Regular Dex holds
-  non-shiny; if she owns ONLY a shiny of a species, that shiny fills the Shiny Dex slot and the
-  Regular Dex slot stays a gap, and the overqualified/CSV notes it). Simpler rule: **Regular Dex =
-  best non-shiny copy; Shiny Dex = best shiny copy; each independent.**
-- **Shiny Dex:** slots only for **shiny-able** species (shiny-locked species omitted entirely — no
-  gap). Uses a new data resource `shiny_locked.json` (list of species that can never be legit
-  shiny / not shiny-obtainable in HOME). Owned shiny → placed; shiny-able but unowned → gap.
-- **+10 empty boxes** after each dex (reserved; the sorter must not place anything in them).
+- **Shiny Dex (physically first):** slots only for **shiny-able** species (shiny-locked species
+  omitted entirely — no gap). Uses a new data resource `shiny_locked.json` (species that can never
+  be legit shiny / not shiny-obtainable in HOME). Placed by best shiny copy; shiny-able but unowned → gap.
+- **Regular Dex:** slots for all 1025 base species in Dex order; placed by **best non-shiny copy**.
+  Gap handling — a Regular-Dex empty slot is annotated in the report as one of:
+  - **"missing"** — Nicole owns no copy of this species at all, or
+  - **"owned as shiny only"** — she owns only a shiny (which lives in the Shiny Dex), so the
+    species IS collected; the Regular-Dex slot is left empty but flagged as satisfied-by-shiny (per
+    Nicole's "a lone shiny counts toward the Regular Dex" decision).
+  The physical rule stays simple: best non-shiny → Regular Dex; best shiny → Shiny Dex; each
+  independent. A single physical Pokémon occupies exactly one slot.
+- **+5 empty boxes** after each dex (reserved; the sorter must not place anything in them).
 
 ---
 
@@ -132,10 +135,22 @@ Two-pass, resumable via JSON checkpoints; execute-resume re-derives from live st
 
 ## 9. Outputs / labeling
 - **Box-map legend** (`<output>_boxmap.txt`/`.csv`): every box range labeled — e.g.
-  "Boxes 1–35: Regular Dex", "Boxes 36–45: (buffer)", "Box 71: Shiny Trades" — so all boxes are
-  clearly identified. (Automated in-HOME box renaming — typing names on the Switch keyboard — is a
-  possible later stretch; not in v3. The legend is the deliverable "clear labels.")
+  "Boxes 1–35: Shiny Dex", "Boxes 36–40: (buffer)", "Box 71: Shiny Trades".
 - **Full catalogue CSV** (existing) + **overqualified-dex CSV** (§3a).
+
+### 9a. Automated in-HOME box renaming (IN SCOPE — Nicole doesn't want to rename ~200 boxes by hand)
+New option `RENAME_BOXES` (default **on**). The program navigates HOME's **box-name edit field**
+for each box in the sorted range and types a clear label via the on-screen keyboard — e.g.
+`Shiny Dex 01`, `Regular Dex 12`, `Legendary`, `Shiny Trades`, `Junk`. Implementation:
+- A new `PokemonHome_BoxRenamer` inference/routine: open the box-name editor, clear the existing
+  name, type the target label using the OSK (reuse the project's on-screen-keyboard text-entry
+  helper if one exists — the codebase has keyboard-entry code for other games; otherwise a
+  char-navigation routine over the HOME OSK layout), confirm, advance to the next box.
+- **Highest-risk / not runtime-testable here** — the OSK navigation + per-key timing are
+  calibrated on the rig (a dedicated calibration/dry-run: rename ONE box, verify, then batch).
+  Labels come from the same box-map the legend uses, so the on-screen names match the legend.
+- Runs as its own pass (after sorting, or standalone) so a rename hiccup never affects the sort;
+  a failed rename logs + continues to the next box (never aborts, never touches Pokémon).
 
 ---
 
@@ -165,5 +180,5 @@ real moves.
 ---
 
 ## 12. Out of scope (v3)
-In-HOME automated box renaming (keyboard entry); perfect cosmetic-form discrimination; EV/ribbon/
-mark/favorite; non-English OCR. Shiny-locked list is seeded best-effort and refinable.
+Perfect cosmetic-form discrimination; EV/ribbon/mark/favorite reading; non-English OCR.
+Shiny-locked list is seeded best-effort and refinable. (Automated box renaming is now IN scope — §9a.)
