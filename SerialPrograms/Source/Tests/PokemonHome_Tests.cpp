@@ -887,6 +887,9 @@ int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& /*image*/){
         TEST_RESULT_EQUAL(results[0].is_dex_keeper, false);
         // It should NOT be assigned ShinyDex category.
         TEST_RESULT_EQUAL((int)results[0].category != (int)BoxCategory::ShinyDex, true);
+        // Victini is 6×31 (iv_best_count=6, competitive_min31=6) and owner-OT →
+        // the correct duplicate route is Competitive.
+        TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::Competitive);
     }
 
     // =========================================================================
@@ -936,7 +939,7 @@ int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& /*image*/){
             (int)BoxCategory::ShinyTrades
         );
 
-        // (d4) Plain low-value duplicate → BoxCategory::Junk
+        // (d4) Foreign-OT non-shiny duplicate (has trade value) → RegularTrades
         PA junk_dup{};
         junk_dup.dex_number   = 1;
         junk_dup.shiny        = false;
