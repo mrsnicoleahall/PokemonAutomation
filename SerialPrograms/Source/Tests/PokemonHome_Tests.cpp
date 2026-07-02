@@ -16,6 +16,7 @@
 #include "PokemonHome/Programs/PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouter.h"
 #include "PokemonHome/Programs/PokemonHome_MasterBoxRouterV3.h"
+#include "PokemonHome/Programs/PokemonHome_MasterPlannerV3.h"
 #include "Pokemon/Inference/Pokemon_IvJudgeReader.h"
 #include "PokemonHome_Tests.h"
 #include "TestUtils.h"
@@ -1029,6 +1030,193 @@ int test_pokemonHome_MasterRouterV3(const ImageViewRGB32& /*image*/){
         // Empty slots get a default result — category is Junk and is_dex_keeper is false.
         TEST_RESULT_EQUAL(results[0].is_dex_keeper, false);
         TEST_RESULT_EQUAL((int)results[0].category, (int)BoxCategory::Junk);
+    }
+
+    return 0;
+}
+
+int test_pokemonHome_PlannerV3(const ImageViewRGB32& /*image*/){
+    using namespace NintendoSwitch::PokemonHome;
+    using PA = Pokemon::CollectedPokemonInfo;
+
+    // -------------------------------------------------------------------------
+    // Minimal layout mirroring the real v3 layout (§1):
+    //   Shiny Dex: boxes 1-35
+    //   Buffer:    boxes 36-40
+    //   Regular Dex: boxes 41-75
+    //   Buffer:    boxes 76-80
+    //   Categories: boxes 81-104
+    // -------------------------------------------------------------------------
+    MasterBoxLayoutV3 layout;
+    layout.shiny_dex_start           = 1;
+    layout.regular_dex_start         = 41;
+    layout.shiny_dex_buffer_boxes    = 5;
+    layout.regular_dex_buffer_boxes  = 5;
+    // shiny_locked: none for Pikachu (#25)
+    layout.shiny_locked              = {};
+    layout.legendary                 = {};
+    layout.mythical                  = {};
+    layout.ultra_beast               = {};
+    layout.paradox                   = {};
+    layout.category_box_ranges[BoxCategory::Legendary]     = {81, 82};
+    layout.category_box_ranges[BoxCategory::Mythical]      = {83, 84};
+    layout.category_box_ranges[BoxCategory::UltraBeast]    = {85, 86};
+    layout.category_box_ranges[BoxCategory::Paradox]       = {87, 88};
+    layout.category_box_ranges[BoxCategory::Events]        = {89, 90};
+    layout.category_box_ranges[BoxCategory::ManualForms]   = {91, 92};
+    layout.category_box_ranges[BoxCategory::Breeding]      = {93, 94};
+    layout.category_box_ranges[BoxCategory::Utility]       = {95, 96};
+    layout.category_box_ranges[BoxCategory::Competitive]   = {97, 98};
+    layout.category_box_ranges[BoxCategory::ShinyTrades]   = {99, 100};
+    layout.category_box_ranges[BoxCategory::RegularTrades] = {101, 102};
+    layout.category_box_ranges[BoxCategory::Junk]          = {103, 104};
+
+    RouterConfig cfg;
+    cfg.owner_ot_names    = {"nicole", "cole"};
+    cfg.competitive_min31 = 6;
+    cfg.breeding_range    = {3, 5};
+    cfg.breedject_range   = {1, 2};
+    cfg.legendary         = &layout.legendary;
+    cfg.mythical          = &layout.mythical;
+    cfg.ultra_beast       = &layout.ultra_beast;
+    cfg.paradox           = &layout.paradox;
+
+    // =========================================================================
+    // Test (a): build_box_map yields 16 labeled ranges in §1 order,
+    //           Shiny Dex first, two "(buffer)" entries.
+    // =========================================================================
+    {
+        auto bm = build_box_map(layout);
+        TEST_RESULT_EQUAL(bm.size(), (size_t)16);
+
+        // §1 order: ShinyDex, (buffer), RegularDex, (buffer), then 12 category boxes
+        TEST_RESULT_COMPONENT_EQUAL(bm[0].label, std::string("Shiny Dex"),    "bm[0] label");
+        TEST_RESULT_COMPONENT_EQUAL(bm[1].label, std::string("(buffer)"),     "bm[1] label");
+        TEST_RESULT_COMPONENT_EQUAL(bm[2].label, std::string("Regular Dex"),  "bm[2] label");
+        TEST_RESULT_COMPONENT_EQUAL(bm[3].label, std::string("(buffer)"),     "bm[3] label");
+
+        // Check Shiny Dex span (1-indexed)
+        TEST_RESULT_COMPONENT_EQUAL(bm[0].box_start, (uint16_t)1,  "ShinyDex start");
+        TEST_RESULT_COMPONENT_EQUAL(bm[0].box_end,   (uint16_t)35, "ShinyDex end");
+
+        // Check shiny buffer span: boxes 36-40
+        TEST_RESULT_COMPONENT_EQUAL(bm[1].box_start, (uint16_t)36, "shiny buffer start");
+        TEST_RESULT_COMPONENT_EQUAL(bm[1].box_end,   (uint16_t)40, "shiny buffer end");
+
+        // Check Regular Dex span (1-indexed)
+        TEST_RESULT_COMPONENT_EQUAL(bm[2].box_start, (uint16_t)41, "RegDex start");
+        TEST_RESULT_COMPONENT_EQUAL(bm[2].box_end,   (uint16_t)75, "RegDex end");
+
+        // Check regular buffer span: boxes 76-80
+        TEST_RESULT_COMPONENT_EQUAL(bm[3].box_start, (uint16_t)76, "reg buffer start");
+        TEST_RESULT_COMPONENT_EQUAL(bm[3].box_end,   (uint16_t)80, "reg buffer end");
+
+        // Check tail categories (indices 4..15)
+        const char* expected_labels[] = {
+            "Legendary", "Mythical", "Ultra Beasts", "Paradox",
+            "Events", "Forms", "Breeding", "Utility", "Competitive",
+            "Shiny Trades", "Regular Trades", "Junk"
+        };
+        for (size_t i = 4; i < 16; ++i){
+            TEST_RESULT_COMPONENT_EQUAL(bm[i].label, std::string(expected_labels[i-4]),
+                std::string("bm[") + std::to_string(i) + "] label");
+        }
+    }
+
+    // =========================================================================
+    // Test (b): tiny catalogue → shiny Pikachu → ShinyDex, non-shiny → RegularDex,
+    //           duplicate shiny → ShinyTrades. No target in buffer boxes.
+    // =========================================================================
+    {
+        // Pikachu dex# = 25.
+        PA shiny_pika{};
+        shiny_pika.dex_number        = 25;
+        shiny_pika.shiny             = true;
+        shiny_pika.ot_name           = "nicole";
+        shiny_pika.iv_read           = true;
+        shiny_pika.iv_best_count     = 5;
+        shiny_pika.iv_total_estimate = 150;
+        shiny_pika.primary_type      = Pokemon::PokemonType::ELECTRIC;
+
+        PA normal_pika{};
+        normal_pika.dex_number        = 25;
+        normal_pika.shiny             = false;
+        normal_pika.ot_name           = "nicole";
+        normal_pika.iv_read           = true;
+        normal_pika.iv_best_count     = 4;
+        normal_pika.iv_total_estimate = 130;
+        normal_pika.primary_type      = Pokemon::PokemonType::ELECTRIC;
+
+        PA dup_shiny_pika{};
+        dup_shiny_pika.dex_number        = 25;
+        dup_shiny_pika.shiny             = true;
+        dup_shiny_pika.ot_name           = "ash";   // lower priority
+        dup_shiny_pika.iv_read           = true;
+        dup_shiny_pika.iv_best_count     = 0;
+        dup_shiny_pika.iv_total_estimate = 30;
+        dup_shiny_pika.primary_type      = Pokemon::PokemonType::ELECTRIC;
+
+        // scan_start = shiny_dex_start - 1 = 0 (absolute 0-indexed box)
+        std::vector<std::optional<PA>> catalogue = {shiny_pika, normal_pika, dup_shiny_pika};
+        MasterPlanV3 plan = build_master_plan_v3(catalogue, layout, cfg, /*scan_start=*/0);
+
+        // No blocking warnings.
+        bool has_blocking = false;
+        for (const auto& w : plan.warnings){
+            if (w.rfind("[BLOCKING]", 0) == 0) has_blocking = true;
+        }
+        TEST_RESULT_EQUAL(has_blocking, false);
+
+        // Shiny Pikachu (index 0) → should move to ShinyDex region (boxes 1-35 = 0-indexed 0-34).
+        // shiny_dex_slot(25, {}) = 24 (0-indexed slot in shiny dex region).
+        // target flat = 0*30 + 24 = 24. box (0-indexed) = 0, slot = 24.
+        // shiny pika starts at flat=0, target=24 → needs to move.
+        bool found_shiny_move_to_shiny_region = false;
+        for (const auto& mv : plan.moves){
+            // ShinyDex boxes 1-35 → 0-indexed 0-34
+            if (mv.to.box >= 0 && mv.to.box <= 34){
+                found_shiny_move_to_shiny_region = true;
+            }
+        }
+        TEST_RESULT_EQUAL(found_shiny_move_to_shiny_region, true);
+
+        // Regular pika (index 1) → RegularDex region (boxes 41-75 = 0-indexed 40-74).
+        // regular_dex_slot(25) = 24 (0-indexed in regular dex region).
+        // target flat = (41-1)*30 + 24 = 40*30 + 24 = 1224. box (0-indexed) = 40.
+        bool found_normal_in_regular_dex = false;
+        for (const auto& mv : plan.moves){
+            // RegularDex 0-indexed 40-74
+            if (mv.to.box >= 40 && mv.to.box <= 74){
+                found_normal_in_regular_dex = true;
+            }
+        }
+        TEST_RESULT_EQUAL(found_normal_in_regular_dex, true);
+
+        // Dup shiny (index 2) → ShinyTrades (boxes 99-100 = 0-indexed 98-99).
+        bool found_dup_in_shinytrades = false;
+        for (const auto& mv : plan.moves){
+            if (mv.to.box >= 98 && mv.to.box <= 99){
+                found_dup_in_shinytrades = true;
+            }
+        }
+        TEST_RESULT_EQUAL(found_dup_in_shinytrades, true);
+
+        // =====================================================================
+        // Test (c): NEVER assign a target into the two buffer regions.
+        //   Buffer 1: boxes 36-40 (0-indexed 35-39)
+        //   Buffer 2: boxes 76-80 (0-indexed 75-79)
+        // =====================================================================
+        bool target_in_buffer = false;
+        for (const auto& mv : plan.moves){
+            const size_t b = mv.to.box;
+            if ((b >= 35 && b <= 39) || (b >= 75 && b <= 79)){
+                target_in_buffer = true;
+            }
+        }
+        TEST_RESULT_EQUAL(target_in_buffer, false);
+
+        // box_map must be present and have 16 entries.
+        TEST_RESULT_EQUAL(plan.box_map.size(), (size_t)16);
     }
 
     return 0;
