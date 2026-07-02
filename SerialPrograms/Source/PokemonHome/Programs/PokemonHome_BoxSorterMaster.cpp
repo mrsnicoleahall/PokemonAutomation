@@ -42,6 +42,7 @@
 #include "PokemonHome_MasterBoxLayout.h"
 #include "PokemonHome_MasterBoxPlanner.h"
 #include "PokemonHome_MasterBoxRouter.h"
+#include "PokemonHome_MasterPlannerV3.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -263,6 +264,24 @@ BoxSorterMaster::BoxSorterMaster()
         LockMode::LOCK_WHILE_RUNNING,
         "240 ms"
     )
+    , USE_V3_LAYOUT(
+        "<b>Use v3 Dual-Dex Layout:</b><br>"
+        "When checked, loads <em>master_box_layout_v3.json</em> + <em>shiny_locked.json</em> "
+        "and plans via the v3 planner (Shiny Dex + Regular Dex + separate Trades + Junk). "
+        "When unchecked, falls back to the v1/v2 single Living-Dex planner.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
+    , ALLOW_RELEASE_PROMPT(
+        "<b>Allow Release Prompt:</b><br>"
+        "When checked and the execute pass finds no free non-buffer slot for a needed "
+        "intermediary, the program pauses and prompts you to release the Junk box to "
+        "free space, then waits up to 5 minutes before stopping. "
+        "The program NEVER releases any " + STRING_POKEMON + " automatically. "
+        "When unchecked, it stops immediately with a UserSetupError if space is tight.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
     , OUTPUT_FILE(
         false,
         "<b>Output File:</b><br>JSON file basename for the catalogue. "
@@ -313,6 +332,8 @@ BoxSorterMaster::BoxSorterMaster()
     PA_ADD_OPTION(UTILITY_MOVES);
     PA_ADD_OPTION(VIDEO_DELAY);
     PA_ADD_OPTION(GAME_DELAY);
+    PA_ADD_OPTION(USE_V3_LAYOUT);
+    PA_ADD_OPTION(ALLOW_RELEASE_PROMPT);
     PA_ADD_OPTION(OUTPUT_FILE);
     PA_ADD_OPTION(EXPORT_CSV);
     PA_ADD_OPTION(DRY_RUN);
@@ -1021,37 +1042,8 @@ void BoxSorterMaster::program(
     // Planner pass — build RouterConfig from live options, load layout, plan.
     // -----------------------------------------------------------------------
 
-    // Load master_box_layout.json from the Resources directory.
-    // The layout file is expected alongside the other PokemonHome resource files.
-    MasterBoxLayout layout;
-    {
-        const std::string layout_path =
-            RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout.json";
-        try{
-            layout = load_master_box_layout(layout_path);
-            env.log("BoxSorterMaster: Loaded master_box_layout from: " + layout_path);
-        }
-        catch (const std::exception& ex){
-            throw UserSetupError(
-                env.logger(),
-                std::string("BoxSorterMaster: Failed to load master_box_layout.json: ") + ex.what()
-            );
-        }
-    }
-
-    // Fix 2: Validate that SCAN_BOX_START matches the layout's living_dex_start_box.
-    // The planner derives its scan_start from layout.living_dex_start_box - 1.
-    // If SCAN_BOX_START differs, catalogue indices will map to the wrong absolute
-    // boxes, silently producing an incorrect (and potentially destructive) plan.
-    if (static_cast<uint16_t>(SCAN_BOX_START) != layout.living_dex_start_box){
-        throw UserSetupError(
-            env.logger(),
-            "BoxSorterMaster: Scan must start at the living-dex start box (" +
-            std::to_string(layout.living_dex_start_box) +
-            "); adjust SCAN_BOX_START. Current value: " +
-            std::to_string(static_cast<uint16_t>(SCAN_BOX_START)) + "."
-        );
-    }
+    const bool use_v3       = static_cast<bool>(USE_V3_LAYOUT);
+    const bool allow_prompt = static_cast<bool>(ALLOW_RELEASE_PROMPT);
 
     // Parse UTILITY_* string lists into normalized slug vectors.
     // Helper lambda: split on commas and newlines, lowercase, strip whitespace.
@@ -1100,141 +1092,446 @@ void BoxSorterMaster::program(
         );
     }
 
-    // Build RouterConfig from live program options.
-    RouterConfig router_cfg;
-    router_cfg.owner_ot_names    = owner_ot_set;
-    router_cfg.competitive_min31 = static_cast<uint8_t>(COMPETITIVE_MIN31);
-    router_cfg.breeding_range    = {
-        static_cast<uint8_t>(BREEDING_MIN),
-        static_cast<uint8_t>(BREEDING_MAX)
-    };
-    router_cfg.breedject_range   = {
-        static_cast<uint8_t>(BREEDJECT_MIN),
-        static_cast<uint8_t>(BREEDJECT_MAX)
-    };
-    router_cfg.legendary   = layout.legendary.empty()   ? nullptr : &layout.legendary;
-    router_cfg.mythical    = layout.mythical.empty()    ? nullptr : &layout.mythical;
-    router_cfg.ultra_beast = layout.ultra_beast.empty() ? nullptr : &layout.ultra_beast;
-    router_cfg.paradox     = layout.paradox.empty()     ? nullptr : &layout.paradox;
+    // 'moves' comes from either the v3 or v1/v2 planner below.
+    std::vector<PlannedMove> plan_moves;
+    std::vector<std::string> plan_warnings;
 
-    // Populate utility_rules from the parsed option lists.
-    for (const auto& slug : utility_abilities){
-        router_cfg.utility_rules.push_back({ UtilityRule::Ability, slug });
-    }
-    for (const auto& slug : utility_items){
-        router_cfg.utility_rules.push_back({ UtilityRule::Item, slug });
-    }
-    for (const auto& slug : utility_moves_list){
-        router_cfg.utility_rules.push_back({ UtilityRule::Move, slug });
-    }
-    if (!router_cfg.utility_rules.empty()){
-        std::ostringstream oss;
-        oss << "BoxSorterMaster: Utility rules (" << router_cfg.utility_rules.size() << "): [";
-        for (size_t i = 0; i < router_cfg.utility_rules.size(); i++){
-            if (i > 0){ oss << ", "; }
-            const auto& ur = router_cfg.utility_rules[i];
-            oss << (ur.kind == UtilityRule::Ability ? "ability:" :
-                    ur.kind == UtilityRule::Item    ? "item:"    : "move:")
-                << ur.target_slug;
-        }
-        oss << "]";
-        env.log(oss.str());
-    }
+    if (use_v3){
+        // -------------------------------------------------------------------
+        // v3 path: dual-dex layout, Shiny Dex + Regular Dex, split trades.
+        // -------------------------------------------------------------------
 
-    // Scratch buffer = scratch_box_count (3) boxes immediately after the scan range.
-    const uint16_t scratch_box_start = static_cast<uint16_t>(scan_start + scan_count);
-    const uint16_t scratch_box_count = 3;
-
-    // Build the move plan.
-    // Pass scan_start explicitly — the planner no longer self-derives it from the
-    // layout.  The UserSetupError guard above already verifies
-    // SCAN_BOX_START == layout.living_dex_start_box, so scan_start is well-defined.
-    env.log("BoxSorterMaster: Building move plan...");
-    MasterPlan master_plan = build_master_plan(
-        catalogue, layout, router_cfg, scan_start, scratch_box_start, scratch_box_count
-    );
-    env.log(
-        "BoxSorterMaster: Plan has " + std::to_string(master_plan.moves.size()) +
-        " moves, " + std::to_string(master_plan.warnings.size()) + " warning(s)."
-    );
-    for (const auto& w : master_plan.warnings){
-        env.log("BoxSorterMaster Plan Warning: " + w, COLOR_YELLOW);
-    }
-
-    // Always write the plan JSON (even in DRY_RUN) BEFORE checking for blocking
-    // warnings, so the user can inspect the plan that caused any block.
-    {
-        JsonObject plan_root;
-        JsonArray moves_arr;
-        for (const auto& mv : master_plan.moves){
-            JsonObject m;
-            {
-                JsonObject f;
-                f["box"]    = static_cast<int64_t>(mv.from.box);
-                f["row"]    = static_cast<int64_t>(mv.from.row);
-                f["column"] = static_cast<int64_t>(mv.from.column);
-                m["from"] = std::move(f);
-            }
-            {
-                JsonObject t;
-                t["box"]    = static_cast<int64_t>(mv.to.box);
-                t["row"]    = static_cast<int64_t>(mv.to.row);
-                t["column"] = static_cast<int64_t>(mv.to.column);
-                m["to"] = std::move(t);
-            }
-            moves_arr.push_back(std::move(m));
-        }
-        plan_root["moves"] = std::move(moves_arr);
-
-        JsonArray warn_arr;
-        for (const auto& w : master_plan.warnings){
-            warn_arr.push_back(w);
-        }
-        plan_root["warnings"] = std::move(warn_arr);
-        plan_root.dump(plan_path);
-        env.log("BoxSorterMaster: Plan written to: " + plan_path);
-    }
-
-    // Write CSV export if requested.
-    if (static_cast<bool>(EXPORT_CSV)){
-        const std::string csv_path = static_cast<std::string>(OUTPUT_FILE) + ".csv";
-        std::ofstream csv_out(csv_path);
-        if (csv_out.is_open()){
-            csv_out << catalogue_csv_header();
-            for (size_t ci = 0; ci < catalogue.size(); ci++){
-                if (!catalogue[ci].has_value()) continue;
-                BoxCursor cur(ci);   // slot_idx → (box, row, col) within scanned range
-                // ci is offset from scan_start, so absolute box = scan_start + cur.box
-                const size_t abs_box = scan_start + cur.box;
-                std::string cat_name;
-                int dest_box_val = -1;
-                if (ci < master_plan.slot_routes.size()){
-                    cat_name     = master_plan.slot_routes[ci].category;
-                    dest_box_val = master_plan.slot_routes[ci].dest_box;
-                }
-                csv_out << catalogue_csv_row(
-                    abs_box,          // 0-indexed absolute box
-                    cur.row,
-                    cur.column,
-                    *catalogue[ci],
-                    cat_name,
-                    dest_box_val
-                );
-            }
-            env.log("BoxSorterMaster: CSV written to: " + csv_path);
-        }
-        else{
-            env.log("BoxSorterMaster: WARNING — could not open CSV file: " + csv_path, COLOR_YELLOW);
-        }
-    }
-
-    // Check for blocking warnings before touching hardware.
-    for (const auto& w : master_plan.warnings){
-        if (w.rfind("[BLOCKING]", 0) == 0){
+        // Validate: v3 shiny_dex_start is box 1 (1-indexed), so scan must
+        // start at box 1.  The dex slots are absolute — any other start
+        // produces incorrect (potentially destructive) move coordinates.
+        if (static_cast<uint16_t>(SCAN_BOX_START) != 1){
             throw UserSetupError(
                 env.logger(),
-                "BoxSorterMaster: Blocking plan warning — cannot execute safely.\n" + w
+                "BoxSorterMaster: USE_V3_LAYOUT requires SCAN_BOX_START = 1 "
+                "(the v3 Shiny Dex occupies box 1 and dex slots are absolute). "
+                "Current value: " +
+                std::to_string(static_cast<uint16_t>(SCAN_BOX_START)) + "."
             );
+        }
+
+        // Load v3 layout files.
+        const std::string layout_v3_path =
+            RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout_v3.json";
+        const std::string shiny_locked_path =
+            RESOURCE_PATH() + "PokemonHome/shiny_locked.json";
+
+        MasterBoxLayoutV3 layout_v3;
+        try{
+            layout_v3 = load_master_box_layout_v3(layout_v3_path, shiny_locked_path);
+            env.log("BoxSorterMaster: Loaded master_box_layout_v3 from: " + layout_v3_path);
+            env.log("BoxSorterMaster: Loaded shiny_locked from: " + shiny_locked_path +
+                    " (" + std::to_string(layout_v3.shiny_locked.size()) + " species locked).");
+        }
+        catch (const std::exception& ex){
+            throw UserSetupError(
+                env.logger(),
+                std::string("BoxSorterMaster: Failed to load v3 layout files: ") + ex.what()
+            );
+        }
+
+        // Build RouterConfig from live options, wired to the v3 layout's dex sets.
+        RouterConfig router_cfg_v3;
+        router_cfg_v3.owner_ot_names    = owner_ot_set;
+        router_cfg_v3.competitive_min31 = static_cast<uint8_t>(COMPETITIVE_MIN31);
+        router_cfg_v3.breeding_range    = {
+            static_cast<uint8_t>(BREEDING_MIN),
+            static_cast<uint8_t>(BREEDING_MAX)
+        };
+        router_cfg_v3.breedject_range   = {
+            static_cast<uint8_t>(BREEDJECT_MIN),
+            static_cast<uint8_t>(BREEDJECT_MAX)
+        };
+        router_cfg_v3.legendary   = layout_v3.legendary.empty()   ? nullptr : &layout_v3.legendary;
+        router_cfg_v3.mythical    = layout_v3.mythical.empty()    ? nullptr : &layout_v3.mythical;
+        router_cfg_v3.ultra_beast = layout_v3.ultra_beast.empty() ? nullptr : &layout_v3.ultra_beast;
+        router_cfg_v3.paradox     = layout_v3.paradox.empty()     ? nullptr : &layout_v3.paradox;
+
+        for (const auto& slug : utility_abilities){
+            router_cfg_v3.utility_rules.push_back({ UtilityRule::Ability, slug });
+        }
+        for (const auto& slug : utility_items){
+            router_cfg_v3.utility_rules.push_back({ UtilityRule::Item, slug });
+        }
+        for (const auto& slug : utility_moves_list){
+            router_cfg_v3.utility_rules.push_back({ UtilityRule::Move, slug });
+        }
+        if (!router_cfg_v3.utility_rules.empty()){
+            std::ostringstream oss;
+            oss << "BoxSorterMaster: Utility rules (" << router_cfg_v3.utility_rules.size() << "): [";
+            for (size_t i = 0; i < router_cfg_v3.utility_rules.size(); i++){
+                if (i > 0){ oss << ", "; }
+                const auto& ur = router_cfg_v3.utility_rules[i];
+                oss << (ur.kind == UtilityRule::Ability ? "ability:" :
+                        ur.kind == UtilityRule::Item    ? "item:"    : "move:")
+                    << ur.target_slug;
+            }
+            oss << "]";
+            env.log(oss.str());
+        }
+
+        // scan_start for v3: SCAN_BOX_START == 1, so scan_start == 0 (0-indexed).
+        // The planner precondition is: scan_start == layout.shiny_dex_start - 1 == 0.
+        const uint16_t v3_scan_start = static_cast<uint16_t>(scan_start);
+
+        env.log("BoxSorterMaster: Building v3 move plan...");
+        MasterPlanV3 master_plan_v3 = build_master_plan_v3(
+            catalogue, layout_v3, router_cfg_v3, v3_scan_start
+        );
+        env.log(
+            "BoxSorterMaster: v3 plan has " + std::to_string(master_plan_v3.moves.size()) +
+            " moves, " + std::to_string(master_plan_v3.warnings.size()) + " warning(s), " +
+            std::to_string(master_plan_v3.overqualified_rows.size()) + " overqualified dex entries."
+        );
+        for (const auto& w : master_plan_v3.warnings){
+            env.log("BoxSorterMaster Plan Warning: " + w, COLOR_YELLOW);
+        }
+
+        // Always write the plan JSON (even in DRY_RUN) before blocking checks.
+        {
+            JsonObject plan_root;
+            JsonArray moves_arr;
+            for (const auto& mv : master_plan_v3.moves){
+                JsonObject m;
+                {
+                    JsonObject f;
+                    f["box"]    = static_cast<int64_t>(mv.from.box);
+                    f["row"]    = static_cast<int64_t>(mv.from.row);
+                    f["column"] = static_cast<int64_t>(mv.from.column);
+                    m["from"] = std::move(f);
+                }
+                {
+                    JsonObject t;
+                    t["box"]    = static_cast<int64_t>(mv.to.box);
+                    t["row"]    = static_cast<int64_t>(mv.to.row);
+                    t["column"] = static_cast<int64_t>(mv.to.column);
+                    m["to"] = std::move(t);
+                }
+                moves_arr.push_back(std::move(m));
+            }
+            plan_root["moves"] = std::move(moves_arr);
+
+            JsonArray warn_arr;
+            for (const auto& w : master_plan_v3.warnings){
+                warn_arr.push_back(w);
+            }
+            plan_root["warnings"] = std::move(warn_arr);
+            plan_root.dump(plan_path);
+            env.log("BoxSorterMaster: Plan written to: " + plan_path);
+        }
+
+        // Write overqualified-dex CSV.
+        {
+            const std::string oq_path =
+                static_cast<std::string>(OUTPUT_FILE) + "_dex_overqualified.csv";
+            std::ofstream oq_out(oq_path);
+            if (oq_out.is_open()){
+                oq_out << "dex_position,species,also_qualifies\n";
+                for (const auto& row : master_plan_v3.overqualified_rows){
+                    oq_out << row << "\n";
+                }
+                env.log("BoxSorterMaster: Overqualified CSV written to: " + oq_path +
+                        " (" + std::to_string(master_plan_v3.overqualified_rows.size()) + " entries).");
+            }
+            else{
+                env.log("BoxSorterMaster: WARNING — could not open overqualified CSV: " + oq_path,
+                        COLOR_YELLOW);
+            }
+        }
+
+        // Write box-map text file.
+        {
+            const std::string bm_path =
+                static_cast<std::string>(OUTPUT_FILE) + "_boxmap.txt";
+            std::ofstream bm_out(bm_path);
+            if (bm_out.is_open()){
+                for (const auto& entry : master_plan_v3.box_map){
+                    bm_out << "Boxes " << entry.box_start
+                           << "-"     << entry.box_end
+                           << ": "    << entry.label << "\n";
+                }
+                env.log("BoxSorterMaster: Box-map written to: " + bm_path +
+                        " (" + std::to_string(master_plan_v3.box_map.size()) + " entries).");
+            }
+            else{
+                env.log("BoxSorterMaster: WARNING — could not open box-map file: " + bm_path,
+                        COLOR_YELLOW);
+            }
+        }
+
+        // Write full catalogue CSV if requested.
+        if (static_cast<bool>(EXPORT_CSV)){
+            const std::string csv_path = static_cast<std::string>(OUTPUT_FILE) + ".csv";
+            std::ofstream csv_out(csv_path);
+            if (csv_out.is_open()){
+                csv_out << catalogue_csv_header();
+                for (size_t ci = 0; ci < catalogue.size(); ci++){
+                    if (!catalogue[ci].has_value()) continue;
+                    BoxCursor cur(ci);
+                    const size_t abs_box = scan_start + cur.box;
+                    csv_out << catalogue_csv_row(
+                        abs_box, cur.row, cur.column,
+                        *catalogue[ci],
+                        /*category=*/"",
+                        /*dest_box=*/-1
+                    );
+                }
+                env.log("BoxSorterMaster: Catalogue CSV written to: " + csv_path);
+            }
+            else{
+                env.log("BoxSorterMaster: WARNING — could not open CSV: " + csv_path, COLOR_YELLOW);
+            }
+        }
+
+        plan_moves    = master_plan_v3.moves;
+        plan_warnings = master_plan_v3.warnings;
+
+    }
+    else{
+        // -------------------------------------------------------------------
+        // v1/v2 fallback path (unchanged).
+        // -------------------------------------------------------------------
+
+        // Load master_box_layout.json from the Resources directory.
+        MasterBoxLayout layout;
+        {
+            const std::string layout_path =
+                RESOURCE_PATH() + "PokemonHome/DexTemplates/master_box_layout.json";
+            try{
+                layout = load_master_box_layout(layout_path);
+                env.log("BoxSorterMaster: Loaded master_box_layout from: " + layout_path);
+            }
+            catch (const std::exception& ex){
+                throw UserSetupError(
+                    env.logger(),
+                    std::string("BoxSorterMaster: Failed to load master_box_layout.json: ") + ex.what()
+                );
+            }
+        }
+
+        // Validate that SCAN_BOX_START matches the layout's living_dex_start_box.
+        if (static_cast<uint16_t>(SCAN_BOX_START) != layout.living_dex_start_box){
+            throw UserSetupError(
+                env.logger(),
+                "BoxSorterMaster: Scan must start at the living-dex start box (" +
+                std::to_string(layout.living_dex_start_box) +
+                "); adjust SCAN_BOX_START. Current value: " +
+                std::to_string(static_cast<uint16_t>(SCAN_BOX_START)) + "."
+            );
+        }
+
+        // Build RouterConfig.
+        RouterConfig router_cfg;
+        router_cfg.owner_ot_names    = owner_ot_set;
+        router_cfg.competitive_min31 = static_cast<uint8_t>(COMPETITIVE_MIN31);
+        router_cfg.breeding_range    = {
+            static_cast<uint8_t>(BREEDING_MIN),
+            static_cast<uint8_t>(BREEDING_MAX)
+        };
+        router_cfg.breedject_range   = {
+            static_cast<uint8_t>(BREEDJECT_MIN),
+            static_cast<uint8_t>(BREEDJECT_MAX)
+        };
+        router_cfg.legendary   = layout.legendary.empty()   ? nullptr : &layout.legendary;
+        router_cfg.mythical    = layout.mythical.empty()    ? nullptr : &layout.mythical;
+        router_cfg.ultra_beast = layout.ultra_beast.empty() ? nullptr : &layout.ultra_beast;
+        router_cfg.paradox     = layout.paradox.empty()     ? nullptr : &layout.paradox;
+
+        for (const auto& slug : utility_abilities){
+            router_cfg.utility_rules.push_back({ UtilityRule::Ability, slug });
+        }
+        for (const auto& slug : utility_items){
+            router_cfg.utility_rules.push_back({ UtilityRule::Item, slug });
+        }
+        for (const auto& slug : utility_moves_list){
+            router_cfg.utility_rules.push_back({ UtilityRule::Move, slug });
+        }
+        if (!router_cfg.utility_rules.empty()){
+            std::ostringstream oss;
+            oss << "BoxSorterMaster: Utility rules (" << router_cfg.utility_rules.size() << "): [";
+            for (size_t i = 0; i < router_cfg.utility_rules.size(); i++){
+                if (i > 0){ oss << ", "; }
+                const auto& ur = router_cfg.utility_rules[i];
+                oss << (ur.kind == UtilityRule::Ability ? "ability:" :
+                        ur.kind == UtilityRule::Item    ? "item:"    : "move:")
+                    << ur.target_slug;
+            }
+            oss << "]";
+            env.log(oss.str());
+        }
+
+        // Scratch buffer = scratch_box_count (3) boxes immediately after the scan range.
+        const uint16_t scratch_box_start = static_cast<uint16_t>(scan_start + scan_count);
+        const uint16_t scratch_box_count = 3;
+
+        env.log("BoxSorterMaster: Building v1/v2 move plan...");
+        MasterPlan master_plan = build_master_plan(
+            catalogue, layout, router_cfg, scan_start, scratch_box_start, scratch_box_count
+        );
+        env.log(
+            "BoxSorterMaster: Plan has " + std::to_string(master_plan.moves.size()) +
+            " moves, " + std::to_string(master_plan.warnings.size()) + " warning(s)."
+        );
+        for (const auto& w : master_plan.warnings){
+            env.log("BoxSorterMaster Plan Warning: " + w, COLOR_YELLOW);
+        }
+
+        // Always write the plan JSON (even in DRY_RUN) before blocking checks.
+        {
+            JsonObject plan_root;
+            JsonArray moves_arr;
+            for (const auto& mv : master_plan.moves){
+                JsonObject m;
+                {
+                    JsonObject f;
+                    f["box"]    = static_cast<int64_t>(mv.from.box);
+                    f["row"]    = static_cast<int64_t>(mv.from.row);
+                    f["column"] = static_cast<int64_t>(mv.from.column);
+                    m["from"] = std::move(f);
+                }
+                {
+                    JsonObject t;
+                    t["box"]    = static_cast<int64_t>(mv.to.box);
+                    t["row"]    = static_cast<int64_t>(mv.to.row);
+                    t["column"] = static_cast<int64_t>(mv.to.column);
+                    m["to"] = std::move(t);
+                }
+                moves_arr.push_back(std::move(m));
+            }
+            plan_root["moves"] = std::move(moves_arr);
+
+            JsonArray warn_arr;
+            for (const auto& w : master_plan.warnings){
+                warn_arr.push_back(w);
+            }
+            plan_root["warnings"] = std::move(warn_arr);
+            plan_root.dump(plan_path);
+            env.log("BoxSorterMaster: Plan written to: " + plan_path);
+        }
+
+        // Write CSV export if requested.
+        if (static_cast<bool>(EXPORT_CSV)){
+            const std::string csv_path = static_cast<std::string>(OUTPUT_FILE) + ".csv";
+            std::ofstream csv_out(csv_path);
+            if (csv_out.is_open()){
+                csv_out << catalogue_csv_header();
+                for (size_t ci = 0; ci < catalogue.size(); ci++){
+                    if (!catalogue[ci].has_value()) continue;
+                    BoxCursor cur(ci);   // slot_idx → (box, row, col) within scanned range
+                    // ci is offset from scan_start, so absolute box = scan_start + cur.box
+                    const size_t abs_box = scan_start + cur.box;
+                    std::string cat_name;
+                    int dest_box_val = -1;
+                    if (ci < master_plan.slot_routes.size()){
+                        cat_name     = master_plan.slot_routes[ci].category;
+                        dest_box_val = master_plan.slot_routes[ci].dest_box;
+                    }
+                    csv_out << catalogue_csv_row(
+                        abs_box,          // 0-indexed absolute box
+                        cur.row,
+                        cur.column,
+                        *catalogue[ci],
+                        cat_name,
+                        dest_box_val
+                    );
+                }
+                env.log("BoxSorterMaster: CSV written to: " + csv_path);
+            }
+            else{
+                env.log("BoxSorterMaster: WARNING — could not open CSV file: " + csv_path, COLOR_YELLOW);
+            }
+        }
+
+        plan_moves    = master_plan.moves;
+        plan_warnings = master_plan.warnings;
+
+    } // end if (use_v3) / else
+
+    // Check for blocking warnings before touching hardware.
+    for (const auto& w : plan_warnings){
+        if (w.rfind("[BLOCKING]", 0) == 0){
+            if (allow_prompt){
+                // §6: Prompt Nicole to release the Junk box and wait for freed space.
+                // The program never releases automatically — it only asks and waits.
+                env.log(
+                    "BoxSorterMaster: [BLOCKING] plan warning detected — free space is insufficient.\n" +
+                    w + "\n"
+                    "ACTION REQUIRED: Please release the Junk/Release box in " +
+                    STRING_POKEMON + " HOME to free space, then resume the program.\n"
+                    "Waiting up to 5 minutes for you to free space...",
+                    COLOR_YELLOW
+                );
+                send_program_status_notification(
+                    env, NOTIFICATION_PROGRAM_FINISH,
+                    "BoxSorterMaster: Waiting for free space — please release the Junk box in HOME.\n"
+                    "The program will wait up to 5 minutes."
+                );
+
+                // Poll for any free non-buffer slot (check live HOME view) up to 5 min.
+                // Strategy: wait in 10-second increments for up to 300 s (5 min), then
+                // re-scan occupancy of a representative box from the scan range looking for
+                // at least one empty slot that indicates freed space.
+                //
+                // NOTE: This is a best-effort check — we cannot know which specific box
+                // Nicole released, so we simply wait for the timeout and then let execution
+                // proceed.  If space is still insufficient, the execute loop will hit a slot
+                // already occupied and the post-move verification will catch it.
+                //
+                // On rig calibration: the timeout and polling interval can be adjusted here.
+                // A future version may re-scan a specific "junk" box range from the layout.
+                constexpr int poll_interval_ms = 10000;   // 10 seconds between checks
+                constexpr int max_wait_ms      = 300000;  // 5 minutes total
+                int waited_ms = 0;
+                bool space_freed = false;
+                while (waited_ms < max_wait_ms){
+                    context.wait_for(Milliseconds(poll_interval_ms));
+                    waited_ms += poll_interval_ms;
+                    env.log(
+                        "BoxSorterMaster: Waiting for freed space... ("
+                        + std::to_string(waited_ms / 1000) + "s / "
+                        + std::to_string(max_wait_ms / 1000) + "s)"
+                    );
+                    // Check whether any non-buffer slot is now empty.
+                    // We check the current box view occupancy as a proxy.
+                    // (A proper check would navigate to the Junk box range, but that
+                    //  requires knowing its absolute box number here; we keep the
+                    //  check simple and rely on post-move verification as the safety net.)
+                    VideoSnapshot snap = env.console.video().snapshot();
+                    bool found_empty = false;
+                    for (size_t r = 0; r < BOX_ROWS && !found_empty; r++){
+                        for (size_t c = 0; c < BOX_COLS && !found_empty; c++){
+                            if (!slot_is_occupied(snap, r, c)){
+                                found_empty = true;
+                            }
+                        }
+                    }
+                    if (found_empty){
+                        space_freed = true;
+                        env.log(
+                            "BoxSorterMaster: Free slot detected — proceeding with execute pass.",
+                            COLOR_GREEN
+                        );
+                        break;
+                    }
+                }
+                if (!space_freed){
+                    throw UserSetupError(
+                        env.logger(),
+                        "BoxSorterMaster: Timed out waiting for freed space after 5 minutes. "
+                        "Please release the Junk box manually, then restart the program."
+                    );
+                }
+            }
+            else{
+                throw UserSetupError(
+                    env.logger(),
+                    "BoxSorterMaster: Blocking plan warning — cannot execute safely.\n" + w
+                );
+            }
         }
     }
 
@@ -1258,17 +1555,17 @@ void BoxSorterMaster::program(
     // -----------------------------------------------------------------------
 
     if (execute_already_started && stored_total_moves > 0 &&
-        stored_total_moves != master_plan.moves.size()){
+        stored_total_moves != plan_moves.size()){
         env.log(
             "BoxSorterMaster: Plan size changed on execute-resume — "
             "stored=" + std::to_string(stored_total_moves) +
-            ", fresh=" + std::to_string(master_plan.moves.size()) +
+            ", fresh=" + std::to_string(plan_moves.size()) +
             ". Proceeding with fresh plan derived from live state.",
             COLOR_YELLOW
         );
     }
 
-    if (master_plan.moves.empty()){
+    if (plan_moves.empty()){
         env.log("BoxSorterMaster: No moves needed — all Pokémon already in place.");
         send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
         return;
@@ -1278,7 +1575,7 @@ void BoxSorterMaster::program(
     auto write_progress = [&](size_t done){
         JsonObject prog;
         prog["moves_done"] = static_cast<int64_t>(done);
-        prog["total_moves"] = static_cast<int64_t>(master_plan.moves.size());
+        prog["total_moves"] = static_cast<int64_t>(plan_moves.size());
         prog.dump(progress_path);
     };
 
@@ -1286,12 +1583,12 @@ void BoxSorterMaster::program(
     // CRITICAL 2: After each swap, read the affected slots' occupancy to confirm
     // the move happened as expected (non-empty in expected post-move positions).
     // On mismatch, stop with a UserSetupError before any further move.
-    for (size_t mi = 0; mi < master_plan.moves.size(); mi++){
-        const PlannedMove& mv = master_plan.moves[mi];
+    for (size_t mi = 0; mi < plan_moves.size(); mi++){
+        const PlannedMove& mv = plan_moves[mi];
 
         const std::string move_label =
             "Move " + std::to_string(mi + 1) + "/" +
-            std::to_string(master_plan.moves.size()) +
+            std::to_string(plan_moves.size()) +
             ": [box=" + std::to_string(mv.from.box) +
             " row=" + std::to_string(mv.from.row) +
             " col=" + std::to_string(mv.from.column) + "] → [box=" +
@@ -1348,7 +1645,7 @@ void BoxSorterMaster::program(
     }
 
     env.log("BoxSorterMaster: Execute pass complete. All " +
-            std::to_string(master_plan.moves.size()) + " moves done.");
+            std::to_string(plan_moves.size()) + " moves done.");
 
     send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
 }

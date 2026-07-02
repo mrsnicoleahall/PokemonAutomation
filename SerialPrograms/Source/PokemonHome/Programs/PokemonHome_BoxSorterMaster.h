@@ -19,6 +19,7 @@
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "Pokemon/Pokemon_CollectedPokemonInfo.h"
 #include "PokemonHome_MasterBoxRouter.h"
+#include "PokemonHome_MasterPlannerV3.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -148,6 +149,17 @@ private:
     // -----------------------------------------------------------------------
     MillisecondsOption VIDEO_DELAY;
     MillisecondsOption GAME_DELAY;
+
+    // -----------------------------------------------------------------------
+    // v3 layout + release options
+    // -----------------------------------------------------------------------
+    // When true, load master_box_layout_v3.json + shiny_locked.json and plan
+    // via build_master_plan_v3.  When false, fall back to the v1/v2 path.
+    BooleanCheckBoxOption USE_V3_LAYOUT;
+    // When true, if execute finds no free non-buffer space, prompt Nicole to
+    // release the Junk box and wait; otherwise stop with a UserSetupError.
+    // The program itself NEVER releases any Pokémon.
+    BooleanCheckBoxOption ALLOW_RELEASE_PROMPT;
 
     // -----------------------------------------------------------------------
     // Output / control options
